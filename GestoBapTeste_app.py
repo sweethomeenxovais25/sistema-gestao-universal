@@ -161,22 +161,22 @@ planilha_mestre = conectar_google()
 try:
     aba_config = planilha_mestre.worksheet("CONFIGURACOES")
     dados_config = aba_config.get_all_values()
-    # Transforma as duas colunas num dicionário prático
     dicionario_config = {linha[0]: linha[1] for linha in dados_config if len(linha) > 1}
     
     NOME_LOJA = dicionario_config.get("NOME_LOJA", "Loja Universal")
     LOGO_URL = dicionario_config.get("LOGO_URL", "https://cdn-icons-png.flaticon.com/512/3081/3081840.png")
     
-    # As cores ainda vêm dos secrets (podem ir para a planilha no futuro se quiser)
-    COR_PRIMARIA = st.secrets["tema"]["cor_primaria"]
-    COR_SECUNDARIA = st.secrets["tema"]["cor_secundaria"]
-    COR_TEXTO = st.secrets["tema"]["cor_texto"]
-except:
+    # AGORA AS CORES VÊM DO BANCO DE DADOS (E não mais do st.secrets!)
+    COR_PRIMARIA = dicionario_config.get("COR_PRIMARIA", "#0056b3")
+    COR_SECUNDARIA = dicionario_config.get("COR_SECUNDARIA", "#f0f8ff")
+    COR_TEXTO = dicionario_config.get("COR_TEXTO", "#1e1e1e")
+except Exception as e:
+    # Cores de segurança caso a planilha falhe
     NOME_LOJA = "Loja Universal"
     LOGO_URL = ""
-    COR_PRIMARIA = "#A67B5B"
-    COR_SECUNDARIA = "#FCF8F2"
-    COR_TEXTO = "#31241b"
+    COR_PRIMARIA = "#0056b3"
+    COR_SECUNDARIA = "#f0f8ff"
+    COR_TEXTO = "#1e1e1e"
 
 # ==========================================
 # 1. CONFIGURAÇÃO ÚNICA DA PÁGINA
@@ -4468,12 +4468,21 @@ elif menu_selecionado == "⚙️ Painel de Administração":
                 else: st.info("Aguardando.")
 
     # -----------------------------------------------------
-    # ABA 2: PERSONALIZAÇÃO DA MARCA (O NOVO PODER)
+    # ABA 2: PERSONALIZAÇÃO DA MARCA E CORES INTELIGENTES
     # -----------------------------------------------------
     with tab_marca:
-        st.write("### 🎨 Alterar Logótipo do Sistema")
-        st.write("Faça o upload da imagem da sua empresa. Ela será atualizada no menu lateral e na tela de login de todos os utilizadores automaticamente.")
+        st.write("### 🎨 Identidade Visual e Inteligência de Cores")
+        st.write("Faça o upload do logótipo. O sistema tentará extrair a cor principal automaticamente para pintar os botões e os menus!")
         
+        # Função Ninja para salvar/atualizar chaves na planilha sem dar erro
+        def atualizar_config(chave, valor):
+            aba_conf = planilha_mestre.worksheet("CONFIGURACOES")
+            try:
+                celula = aba_conf.find(chave, in_column=1)
+                aba_conf.update_cell(celula.row, 2, valor)
+            except:
+                aba_conf.append_row([chave, valor])
+
         c_logo1, c_logo2 = st.columns([1, 2])
         
         with c_logo1:
@@ -4483,31 +4492,65 @@ elif menu_selecionado == "⚙️ Painel de Administração":
             
         with c_logo2:
             with st.form("form_nova_logo", clear_on_submit=True):
-                img_nova_logo = st.file_uploader("Selecione a Nova Logo (PNG preferencialmente)", type=['png', 'jpg', 'jpeg'])
+                img_nova_logo = st.file_uploader("Selecione a Nova Logo (PNG/JPG)", type=['png', 'jpg', 'jpeg'])
                 
-                if st.form_submit_button("Substituir Logótipo 🚀", type="primary"):
+                if st.form_submit_button("Substituir Logótipo e Extrair Cor 🚀", type="primary"):
                     if img_nova_logo:
-                        with st.spinner("Enviando logo para a nuvem..."):
-                            # 1. Sobe a imagem pro Cloudinary do cliente
+                        with st.spinner("A analisar os pixeis da imagem e a enviar para a nuvem..."):
+                            # 1. Inteligência Artificial: Extrair a Cor Dominante da Imagem
+                            try:
+                                from PIL import Image
+                                import io
+                                imagem_pil = Image.open(io.BytesIO(img_nova_logo.getvalue())).convert("RGB")
+                                imagem_pil = imagem_pil.resize((50, 50)) # Encolhe para processar rápido
+                                cores = imagem_pil.getcolors(2500)
+                                cores.sort(key=lambda x: x[0], reverse=True)
+                                
+                                cor_dominante_hex = "#0056b3" # Cor padrão de segurança
+                                for count, cor in cores:
+                                    # Ignora branco puro e preto puro para achar a cor real da logo
+                                    if not (cor[0]>240 and cor[1]>240 and cor[2]>240) and not (cor[0]<15 and cor[1]<15 and cor[2]<15):
+                                        cor_dominante_hex = '#%02x%02x%02x' % cor
+                                        break
+                                
+                                # Atualiza a cor no banco de dados automaticamente!
+                                atualizar_config("COR_PRIMARIA", cor_dominante_hex)
+                            except Exception as e:
+                                print(f"Erro ao extrair cor: {e}")
+
+                            # 2. Sobe a imagem pro Cloudinary
                             id_logo, link_nova_logo = upload_para_cloudinary(img_nova_logo.getvalue(), "logo_oficial_cliente", "Configuracoes")
                             
                             if link_nova_logo:
-                                try:
-                                    aba_conf = planilha_mestre.worksheet("CONFIGURACOES")
-                                    # 2. Acha onde tá escrito "LOGO_URL" na coluna A
-                                    celula_logo = aba_conf.find("LOGO_URL", in_column=1)
-                                    # 3. Substitui o valor na Coluna B
-                                    aba_conf.update_cell(celula_logo.row, 2, link_nova_logo)
-                                    
-                                    st.success("✅ Identidade visual atualizada com sucesso! A página recarregará em instantes.")
-                                    import time
-                                    time.sleep(2)
-                                    st.cache_data.clear()
-                                    st.cache_resource.clear()
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Erro ao salvar configuração no banco: {e}")
+                                atualizar_config("LOGO_URL", link_nova_logo)
+                                st.success("✅ Logótipo atualizado e sistema repintado automaticamente! A atualizar ecrã...")
+                                import time
+                                time.sleep(2)
+                                st.cache_data.clear(); st.cache_resource.clear(); st.rerun()
                             else:
                                 st.error("Falha no upload para o servidor de imagens.")
                     else:
                         st.warning("⚠️ Selecione uma imagem primeiro.")
+
+        st.divider()
+        
+        # 🖌️ FERRAMENTA ADICIONAL: EDITOR MANUAL DE CORES
+        st.write("### 🖌️ Editor Manual de Cores (Ajuste Fino)")
+        st.write("O sistema escolheu uma cor automaticamente. Se preferir outro tom, use os selecionadores abaixo:")
+        
+        with st.form("form_cores_manuais"):
+            cc1, cc2, cc3 = st.columns(3)
+            nova_cor_primaria = cc1.color_picker("Cor Principal (Botões)", COR_PRIMARIA)
+            nova_cor_secundaria = cc2.color_picker("Fundo do Menu Lateral", COR_SECUNDARIA)
+            nova_cor_texto = cc3.color_picker("Cor das Fontes", COR_TEXTO)
+            
+            if st.form_submit_button("Salvar Nova Paleta de Cores 🎨", type="primary"):
+                with st.spinner("A repintar o sistema..."):
+                    atualizar_config("COR_PRIMARIA", nova_cor_primaria)
+                    atualizar_config("COR_SECUNDARIA", nova_cor_secundaria)
+                    atualizar_config("COR_TEXTO", nova_cor_texto)
+                    
+                    st.success("✅ Cores atualizadas!")
+                    import time
+                    time.sleep(1)
+                    st.cache_data.clear(); st.cache_resource.clear(); st.rerun()
