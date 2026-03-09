@@ -774,7 +774,7 @@ if menu_selecionado == "🛒 Vendas":
                             cod_cli = c_sel.split(" - ")[0]
                             nome_cli = banco_de_clientes[cod_cli]['nome']
 
-                        # 2. Gravação de Itens (Loop na Planilha)
+                        # 2. Gravação de Itens (Loop na Planilha - BLINDADO SAAS)
                         if not modo_teste:
                             aba_v = planilha_mestre.worksheet("VENDAS")
                             for item in st.session_state['carrinho']:
@@ -786,8 +786,7 @@ if menu_selecionado == "🛒 Vendas":
                                 t_liq_item = item['subtotal'] - desconto_proporcional
                                 eh_parc = "Sim" if metodo == "Sweet Flex" else "Não"
                                 
-                                # Fórmulas Inteligentes
-                                f_atraso = '=SE(OU(INDIRETO("W"&LIN())="Pago"; INDIRETO("W"&LIN())="Em dia"); 0; MÁXIMO(0; HOJE() - INDIRETO("V"&LIN())))'
+                                # 🛡️ Fórmulas Inteligentes (Injetadas linha por linha com proteção contra erros visuais)
                                 f_k = '=SE(INDIRETO("I"&LIN())=""; ""; ARRED(INDIRETO("I"&LIN()) * (1 - INDIRETO("J"&LIN())); 2))'
                                 f_l = '=SE(INDIRETO("H"&LIN())=""; ""; ARRED(INDIRETO("H"&LIN()) * INDIRETO("K"&LIN()); 2))'
                                 f_m = '=SE(INDIRETO("L"&LIN())=""; ""; ARRED(INDIRETO("L"&LIN()) - (INDIRETO("H"&LIN()) * INDIRETO("G"&LIN())); 2))'
@@ -796,6 +795,9 @@ if menu_selecionado == "🛒 Vendas":
                                 
                                 # 💡 SUA FÓRMULA DE SALDO DEVEDOR
                                 f_u = '=SE(INDIRETO("L"&LIN())=""; ""; SE(ARRUMAR(MINÚSCULA(INDIRETO("P"&LIN())))="não"; 0; MÁXIMO(0; INDIRETO("L"&LIN()) - INDIRETO("T"&LIN()))))'
+                                
+                                # 💡 NOVA: Fórmula de Atraso cravada com a regra do vazio
+                                f_atraso = '=SE(INDIRETO("V"&LIN())=""; ""; SE(OU(INDIRETO("W"&LIN())="Pago"; INDIRETO("W"&LIN())="Em dia"); 0; MÁXIMO(0; HOJE() - INDIRETO("V"&LIN()))))'
                                 
                                 linha = [
                                     "", datetime.now().strftime("%d/%m/%Y"), cod_cli, nome_cli, 
@@ -807,8 +809,14 @@ if menu_selecionado == "🛒 Vendas":
                                     detalhes_p[0] if (eh_parc=="Sim" and detalhes_p) else "", 
                                     "Pendente" if eh_parc=="Sim" else "Pago", f_atraso
                                 ]
-                                idx_ins = aba_v.find("TOTAIS").row
-                                aba_v.insert_row(linha, index=idx_ins, value_input_option='USER_ENTERED')
+                                
+                                # 🛡️ Tratamento de erro na inserção (Tática de Fallback)
+                                try:
+                                    idx_ins = aba_v.find("TOTAIS").row
+                                    aba_v.insert_row(linha, index=idx_ins, value_input_option='USER_ENTERED')
+                                except:
+                                    # Se a aba não tiver TOTAIS, insere na última linha vazia disponível
+                                    aba_v.append_row(linha, value_input_option='USER_ENTERED')
 
                         # 3. Geração do Recibo Único e Elegante
                         primeiro_nome_vendedor = vendedor.split(' ')[0]
