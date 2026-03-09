@@ -2446,19 +2446,42 @@ elif menu_selecionado == "📦 Estoque":
                             cu_l = c2.number_input("Novo Custo", value=float(custo_at))
                             pr_l = c3.number_input("Novo Preço", value=float(preco_at))
                             puxar = st.checkbox(f"Puxar {est_h} itens antigos?", value=True)
+                            
                             if st.form_submit_button("Gerar Lote"):
                                 with st.spinner("Criando lote..."):
                                     aba = planilha_mestre.worksheet("INVENTÁRIO")
+                                    
+                                    # 🛡️ Fórmulas Blindadas do Estoque
                                     f_total_e = '=SE(INDIRETO("C"&LIN())=""; ""; ARRED(INDIRETO("C"&LIN()) * INDIRETO("D"&LIN()); 2))'
+                                    
+                                    # 💡 A NOVA FÓRMULA: O SOMASE que busca na aba VENDAS
+                                    f_vend_g = '=SE(INDIRETO("A"&LIN())=""; 0; SOMASE(VENDAS!E:E; INDIRETO("A"&LIN()); VENDAS!H:H))'
+                                    
                                     f_estoque_h = '=SE(INDIRETO("C"&LIN())=""; ""; INDIRETO("C"&LIN()) - INDIRETO("G"&LIN()))'
+                                    
                                     base = str(cod_e).split(".")[0]
                                     ext = str(cod_e).split(".")[1] if "." in str(cod_e) else "0"
                                     n_cod = f"{base}.{int(ext)+1}"
-                                    if puxar: aba.update_acell(f"C{lin_p}", vend_g)
-                                    nova_linha = [n_cod, f"{nome_e} (Lote {int(ext)+1})", q_l + (est_h if puxar else 0), cu_l, f_total_e, 3, 0, f_estoque_h, pr_l, datetime.now().strftime("%d/%m/%Y"), ""]
-                                    cel_tot = aba.find("TOTAIS")
-                                    if cel_tot: aba.insert_row(nova_linha, index=cel_tot.row, value_input_option='RAW')
-                                    else: aba.append_row(nova_linha, value_input_option='RAW')
+                                    
+                                    # Atualiza o antigo se pediu para puxar
+                                    if puxar: 
+                                        try: aba.update_acell(f"C{lin_p}", vend_g)
+                                        except: pass
+
+                                    # Nova linha com as 3 fórmulas injetadas
+                                    nova_linha = [
+                                        n_cod, f"{nome_e} (Lote {int(ext)+1})", 
+                                        q_l + (est_h if puxar else 0), cu_l, 
+                                        f_total_e, 3, f_vend_g, f_estoque_h, 
+                                        pr_l, datetime.now().strftime("%d/%m/%Y"), ""
+                                    ]
+                                    
+                                    try:
+                                        cel_tot = aba.find("TOTAIS")
+                                        aba.insert_row(nova_linha, index=cel_tot.row, value_input_option='USER_ENTERED')
+                                    except: 
+                                        aba.append_row(nova_linha, value_input_option='USER_ENTERED')
+                                        
                                     planilha_mestre.worksheet("LOG_ESTOQUE").append_row([datetime.now().strftime("%d/%m/%Y"), datetime.now().strftime("%H:%M"), "NOVO LOTE", nome_e, f"Lote {n_cod}", st.session_state.get('usuario_logado', 'Bia')], value_input_option='RAW')
                                     st.success(f"Lote {n_cod} criado!"); st.cache_data.clear(); st.rerun()
 
@@ -2536,19 +2559,29 @@ elif menu_selecionado == "📦 Estoque":
         with st.form("f_est_original", clear_on_submit=True):
             c1, c2 = st.columns([1, 2]); n_c = c1.text_input("Cód."); n_n = c2.text_input("Nome")
             c3, c4, c5 = st.columns(3); n_q = c3.number_input("Qtd", 0); n_custo = c4.number_input("Custo (R$)", 0.0); n_v = c5.number_input("Venda (R$)", 0.0)
+            
             if st.form_submit_button("Salvar Novo Produto") and n_c and n_n:
                 with st.spinner("Cadastrando..."):
                     aba = planilha_mestre.worksheet("INVENTÁRIO")
+                    
+                    # 🛡️ Fórmulas Blindadas do Estoque
                     f_total_e = '=SE(INDIRETO("C"&LIN())=""; ""; ARRED(INDIRETO("C"&LIN()) * INDIRETO("D"&LIN()); 2))'
+                    f_vend_g = '=SE(INDIRETO("A"&LIN())=""; 0; SOMASE(VENDAS!E:E; INDIRETO("A"&LIN()); VENDAS!H:H))'
                     f_estoque_h = '=SE(INDIRETO("C"&LIN())=""; ""; INDIRETO("C"&LIN()) - INDIRETO("G"&LIN()))'
-                    linha_manual = [n_c, n_n, n_q, n_custo, f_total_e, 3, 0, f_estoque_h, n_v, datetime.now().strftime("%d/%m/%Y"), ""]
-                    cel_tot = aba.find("TOTAIS")
                     
-                    # 💡 A MÁGICA: USER_ENTERED ativa as fórmulas
-                    if cel_tot: aba.insert_row(linha_manual, index=cel_tot.row, value_input_option='USER_ENTERED')
-                    else: aba.append_row(linha_manual, value_input_option='USER_ENTERED')
+                    # Injeta o f_vend_g na coluna G
+                    linha_manual = [
+                        n_c, n_n, n_q, n_custo, f_total_e, 3, f_vend_g, f_estoque_h, n_v, datetime.now().strftime("%d/%m/%Y"), ""
+                    ]
                     
-                    planilha_mestre.worksheet("LOG_ESTOQUE").append_row([datetime.now().strftime("%d/%m/%Y"), datetime.now().strftime("%H:%M"), "CADASTRO", n_n, f"Cód: {n_c}", st.session_state.get('usuario_logado', 'Bia')], value_input_option='RAW')
+                    try:
+                        cel_tot = aba.find("TOTAIS")
+                        aba.insert_row(linha_manual, index=cel_tot.row, value_input_option='USER_ENTERED')
+                    except: 
+                        aba.append_row(linha_manual, value_input_option='USER_ENTERED')
+                    
+                    # 💡 Ajuste de Vendedor (Sai a "Bia", entra o nome do usuário real)
+                    planilha_mestre.worksheet("LOG_ESTOQUE").append_row([datetime.now().strftime("%d/%m/%Y"), datetime.now().strftime("%H:%M"), "CADASTRO", n_n, f"Cód: {n_c}", st.session_state.get('usuario_logado', 'Sistema')], value_input_option='RAW')
                     st.success("✅ Cadastrado!"); st.cache_data.clear(); st.rerun()
 
     # 📜 HISTÓRICO E BUSCA FINAL (DENTRO DA ABA ESTOQUE)
