@@ -370,13 +370,12 @@ def upload_para_cloudinary(file_bytes, file_name, pasta_destino):
 
 @st.cache_data(ttl=60)
 def carregar_dados():
-    # 💡 CORREÇÃO 1: Se falhar, agora ele retorna as 14 variáveis certinhas para não quebrar o app
+    # 💡 CORREÇÃO 1: Agora ele retorna 15 variáveis certinhas (adicionado mais um pd.DataFrame vazio para df_cred)
     if not planilha_mestre: 
-        return {}, {}, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), {}, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        return {}, {}, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), {}, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
     
     def ler_aba_seguro(nome):
         try:
-            # 💡 CORREÇÃO 2: A variável certa é 'nome' e não 'nome_aba'
             aba = planilha_mestre.worksheet(nome)
             dados = aba.get_all_values()
             if len(dados) <= 1: return pd.DataFrame()
@@ -402,16 +401,19 @@ def carregar_dados():
     df_despesas = ler_aba_seguro("DESPESAS")
     df_docs = ler_aba_seguro("DOCUMENTOS")
     df_marketing = ler_aba_seguro("MARKETING")
+    
+    # 💡 ABA ADICIONADA PARA O VENDEDOR DINÂMICO
+    df_cred = ler_aba_seguro("CREDENCIAIS")
 
     banco_prod = {str(r.iloc[0]): {"nome": r.iloc[1], "custo": float(limpar_v(r.iloc[3])), "estoque": r.iloc[7], "venda": r.iloc[8]} for _, r in df_inv.iterrows()} if not df_inv.empty else {}
     banco_cli = {str(r.iloc[0]): {"nome": str(r.iloc[1]), "fone": str(r.iloc[2])} for _, r in df_cli.iterrows()} if not df_cli.empty else {}
     banco_forn = {str(r.iloc[0]): {"nome": str(r.iloc[1])} for _, r in df_fornecedores.iterrows()} if not df_fornecedores.empty else {}
 
-    # Retornando TUDO
-    return banco_prod, banco_cli, df_inv, df_fin, df_vendas, df_painel, df_cli, df_socios, df_aportes, df_docs, banco_forn, df_fornecedores, df_despesas, df_marketing
+    # Retornando TUDO (15 itens agora)
+    return banco_prod, banco_cli, df_inv, df_fin, df_vendas, df_painel, df_cli, df_socios, df_aportes, df_docs, banco_forn, df_fornecedores, df_despesas, df_marketing, df_cred
 
-# Variáveis que recebem os dados (Atualizado)
-banco_de_produtos, banco_de_clientes, df_full_inv, df_financeiro, df_vendas_hist, df_painel_resumo, df_clientes_full, df_socios, df_aportes, df_docs, banco_de_fornecedores, df_fornecedores, df_despesas, df_marketing = carregar_dados()
+# Variáveis que recebem os dados (Atualizado com df_cred no final para bater com o return)
+banco_de_produtos, banco_de_clientes, df_full_inv, df_financeiro, df_vendas_hist, df_painel_resumo, df_clientes_full, df_socios, df_aportes, df_docs, banco_de_fornecedores, df_fornecedores, df_despesas, df_marketing, df_cred = carregar_dados()df_fornecedores, df_despesas, df_marketing = carregar_dados()
 
 with st.sidebar:
     try: st.image(LOGO_URL, use_container_width=True)
