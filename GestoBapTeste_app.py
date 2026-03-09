@@ -1102,7 +1102,7 @@ elif menu_selecionado == "💰 Financeiro":
     st.title("💰 Gestão Financeira")
     
     # ==========================================================
-    # 🧠 CEO DE BOLSO (INTELIGÊNCIA ARTIFICIAL FINANCEIRA)
+    # 🧠 CEO DE BOLSO (INTELIGÊNCIA ARTIFICIAL FINANCEIRA - VIA API REST DIRETA)
     # ==========================================================
     if st.session_state.get('nivel_acesso') in ['Admin', 'Admin (Acesso Total)', 'Gerência (Intermediário)']:
         with st.expander("✨ Relatório Executivo Inteligente (CEO de Bolso)", expanded=True):
@@ -1112,20 +1112,19 @@ elif menu_selecionado == "💰 Financeiro":
             if c_ia2.button("🧠 Gerar Análise", type="primary", use_container_width=True):
                 with st.spinner("O CEO de Bolso está a analisar os seus dados..."):
                     try:
-                        # 1. LEITURA ULTRA-RÁPIDA (Puxa os dados que já estão na memória do sistema!)
+                        # 1. LEITURA ULTRA-RÁPIDA (Memória do sistema)
                         total_vendas_qtd = len(df_vendas_hist) if not df_vendas_hist.empty else 0
                         total_despesas = len(df_despesas) if not df_despesas.empty else 0
                         
                         produto_top = "Nenhum"
                         if not df_vendas_hist.empty:
                             try:
-                                # A coluna 5 (índice 4 ou 5) costuma ser o nome do produto. Pegamos o que mais repete.
                                 nome_col_produto = df_vendas_hist.columns[5] 
                                 produto_top = df_vendas_hist[nome_col_produto].value_counts().idxmax()
                             except:
                                 produto_top = "Não identificado"
                         
-                        # 2. ENGENHARIA DE PROMPT (O cérebro)
+                        # 2. ENGENHARIA DE PROMPT
                         prompt_ceo = f"""
                         Aja como um Diretor Financeiro (CFO) amigável de uma loja chamada {NOME_LOJA}. 
                         Analise os seguintes dados rápidos:
@@ -1139,15 +1138,30 @@ elif menu_selecionado == "💰 Financeiro":
                         Use um tom profissional, acolhedor e termine com uma frase de incentivo. Seja conciso.
                         """
                         
-                        # 3. CHAMADA À IA (Gemini 1.5 Flash - Mais rápido e estável)
-                        modelo = genai.GenerativeModel('gemini-1.5-flash')
-                        resposta_ia = modelo.generate_content(prompt_ceo)
+                        # 3. CHAMADA DIRETA À API DO GOOGLE (À PROVA DE FALHAS NO STREAMLIT)
+                        import requests
+                        chave_api = st.secrets["GOOGLE_API_KEY"]
+                        url_google = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={chave_api}"
                         
-                        st.success("✅ Análise concluída em segundos!")
-                        st.info(resposta_ia.text)
+                        cabecalho = {'Content-Type': 'application/json'}
+                        carga_dados = {
+                            "contents": [{"parts": [{"text": prompt_ceo}]}]
+                        }
+                        
+                        # Dispara a requisição com um limite de tempo (timeout) para nunca entrar em loop infinito
+                        resposta_google = requests.post(url_google, headers=cabecalho, json=carga_dados, timeout=15)
+                        
+                        if resposta_google.status_code == 200:
+                            dados_ia = resposta_google.json()
+                            texto_gerado = dados_ia['candidates'][0]['content']['parts'][0]['text']
+                            
+                            st.success("✅ Análise concluída em segundos!")
+                            st.info(texto_gerado)
+                        else:
+                            st.error(f"⚠️ O Google recusou a ligação. Verifique se a sua GOOGLE_API_KEY está correta. (Erro {resposta_google.status_code})")
                         
                     except Exception as e:
-                        st.error(f"⚠️ Erro ao gerar análise. O sistema de IA pode estar a aquecer. Detalhe: {e}")
+                        st.error(f"⚠️ Erro ao comunicar com a IA. Detalhe: {e}")
     
     st.divider()
     
