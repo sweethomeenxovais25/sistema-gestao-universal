@@ -317,12 +317,19 @@ with st.sidebar:
 
     st.title("🛠️ Painel Sweet Home")
     
-    # 💡 O ESCUDO DE ACESSO: Apenas o Admin vê o menu de Configurações
-    opcoes_menu = ["🛒 Vendas", "💰 Financeiro", "📦 Estoque", "👥 Clientes", "📂 Documentos", "🏭 Compras e Despesas", "📢 Gestão de Marketing", "🏛️ Contabilidade e MEI"]
-    
-    # Se quem fez login for Admin, o sistema injeta uma aba secreta no final!
+    # 💡 O ESCUDO DE ACESSO COMPLETO (RBAC)
     if st.session_state.get('nivel_acesso') == 'Admin':
-        opcoes_menu.append("⚙️ Painel de Administração")
+        # O Dono da loja vê TUDO
+        opcoes_menu = [
+            "🛒 Vendas", "💰 Financeiro", "📦 Estoque", "👥 Clientes", 
+            "📂 Documentos", "🏭 Compras e Despesas", "📢 Gestão de Marketing", 
+            "🏛️ Contabilidade e MEI", "⚙️ Painel de Administração"
+        ]
+    else:
+        # O Vendedor só vê o lado operacional (Não vê dinheiro, despesas ou impostos)
+        opcoes_menu = [
+            "🛒 Vendas", "📦 Estoque", "👥 Clientes", "📢 Gestão de Marketing"
+        ]
         
     menu_selecionado = st.radio(
         "Navegação",
