@@ -1445,42 +1445,51 @@ elif menu_selecionado == "💰 Financeiro":
                     try:
                         aba_v = planilha_mestre.worksheet("VENDAS")
                         df_v_viva = pd.DataFrame(aba_v.get_all_records())
-                        df_v_viva['S_NUM'] = df_v_viva['SALDO DEVEDOR'].apply(limpar_v)
+                        
+                        # 💡 Trabalhamos com a Coluna T (Pago) e a U (Saldo) de forma inteligente
+                        nome_col_pago = df_v_viva.columns[19] # Coluna T
+                        nome_col_saldo = df_v_viva.columns[20] # Coluna U
+                        
+                        df_v_viva['S_NUM'] = df_v_viva[nome_col_saldo].apply(limpar_v)
+                        df_v_viva['P_NUM'] = df_v_viva[nome_col_pago].apply(limpar_v)
+                        
                         nome_c_alvo = " - ".join(c_pg.split(" - ")[1:])
                         pendentes = df_v_viva[(df_v_viva['CLIENTE'] == nome_c_alvo) & (df_v_viva['S_NUM'] > 0)].copy()
                         sobra = v_pg
                         
-                        # Memória da transação para facilitar o estorno futuro
                         linhas_afetadas = []
                         
                         for idx, row in pendentes.iterrows():
                             if sobra <= 0: break
                             lin_planilha = idx + 2
                             div_linha = row['S_NUM']
+                            pago_anterior = row['P_NUM']
                             
                             if sobra >= div_linha:
-                                aba_v.update_acell(f"U{lin_planilha}", 0) 
+                                # Paga a linha toda: Soma o que faltava na Coluna T
+                                novo_t = pago_anterior + div_linha
+                                aba_v.update_acell(f"T{lin_planilha}", novo_t) 
                                 aba_v.update_acell(f"W{lin_planilha}", "Pago") 
-                                linhas_afetadas.append(f"{lin_planilha}:{div_linha}") # Guarda quanto pagou dessa linha
+                                linhas_afetadas.append(f"{lin_planilha}:{div_linha}")
                                 sobra -= div_linha
                             else:
-                                aba_v.update_acell(f"U{lin_planilha}", div_linha - sobra) 
+                                # Paga só um pedaço: Soma a sobra na Coluna T
+                                novo_t = pago_anterior + sobra
+                                aba_v.update_acell(f"T{lin_planilha}", novo_t) 
                                 linhas_afetadas.append(f"{lin_planilha}:{sobra}")
                                 sobra = 0
                         
                         registro_afetadas = "|".join(linhas_afetadas) # Ex: 10:50.00|11:20.00
                         
                         aba_f = planilha_mestre.worksheet("FINANCEIRO")
-                        # 💡 Adicionamos o registro_afetadas na coluna H (ou no final da Obs) para a borracha saber o que estornar
                         obs_final = f"{meio}: {obs} [LOG_FIFO:{registro_afetadas}]"
                         aba_f.append_row([datetime.now().strftime("%d/%m/%Y"), datetime.now().strftime("%H:%M"), c_pg.split(" - ")[0], nome_c_alvo, 0, v_pg, "PAGO", obs_final], value_input_option='RAW')
                         
-                        st.success(f"✅ Recebido de {nome_c_alvo} processado!")
-                        st.cache_data.clear()
-                        st.cache_resource.clear(); st.rerun()
+                        st.success(f"✅ Recebido de {nome_c_alvo} processado! As fórmulas de saldo atualizaram sozinhas.")
+                        st.cache_data.clear(); st.cache_resource.clear(); st.rerun()
                     except Exception as e: st.error(f"Erro no FIFO: {e}")
 
-        # --- 🕒 HISTÓRICO DE ABATIMENTOS (LÊ A ABA FINANCEIRO) ---
+        # --- 🕒 HISTÓRICO DE ABATIMENTOS E BORRACHA MÁGICA ---
         st.markdown("---")
         st.subheader("🕒 Últimos Abatimentos Registrados")
         
@@ -1494,73 +1503,50 @@ elif menu_selecionado == "💰 Financeiro":
                 
                 if 'STATUS' in df_f_hist.columns:
                     df_f_hist['STATUS'] = df_f_hist['STATUS'].str.strip().str.upper()
-                    # 💡 Agora pegamos o histórico completo para a borracha poder atuar, mas mostramos os últimos 5
                     abatimentos = df_f_hist[df_f_hist['STATUS'] == "PAGO"].copy()
-                    abatimentos['LINHA_REAL'] = abatimentos.index + 2 # Descobre a linha da planilha
+                    abatimentos['LINHA_REAL'] = abatimentos.index + 2
                     abatimentos_view = abatimentos.tail(5).iloc[::-1]
                 else:
-                    abatimentos = pd.DataFrame()
-                    abatimentos_view = pd.DataFrame()
+                    abatimentos = abatimentos_view = pd.DataFrame()
 
                 if not abatimentos_view.empty:
                     st.dataframe(
                         abatimentos_view[['DATA', 'NOME', 'VALOR_PAGO', 'OBS']],
-                        column_config={
-                            "DATA": st.column_config.TextColumn("📅 Data"),
-                            "NOME": st.column_config.TextColumn("👤 Cliente"),
-                            "VALOR_PAGO": st.column_config.TextColumn("💰 Valor Pago"),
-                            "OBS": st.column_config.TextColumn("📝 Observação")
-                        },
-                        use_container_width=True,
-                        hide_index=True
+                        column_config={"DATA": "📅 Data", "NOME": "👤 Cliente", "VALOR_PAGO": "💰 Valor", "OBS": "📝 Observação"},
+                        use_container_width=True, hide_index=True
                     )
                 else:
-                    st.info("ℹ️ Nenhum abatimento com status 'PAGO' foi localizado.")
+                    st.info("ℹ️ Nenhum abatimento com status 'PAGO' localizado.")
                     
                 # ==========================================
-                # ✏️ A BORRACHA MÁGICA DO FIFO (ESTORNO)
+                # ✏️ A BORRACHA MÁGICA DO FIFO (AUTÔNOMA)
                 # ==========================================
                 st.divider()
                 with st.expander("✏️ Corrigir ou Estornar Abatimento (Borracha Mágica)", expanded=False):
-                    st.write("Lançou um pagamento errado? O sistema irá **apagar o recibo financeiro** e **devolver o saldo devedor** para as compras da cliente na aba VENDAS.")
+                    st.write("Lançou um pagamento errado? A borracha **retira o dinheiro da Coluna T (Valor Pago)** e deixa a sua fórmula de Saldo Devedor calcular a dívida de volta sozinha.")
                     
                     if not abatimentos.empty:
-                        # Mostra os últimos 20 pagamentos para estorno
                         abatimentos_revert = abatimentos.tail(20).iloc[::-1]
-                        
                         opcoes_estorno = []
                         dict_estorno = {}
                         
                         for _, r in abatimentos_revert.iterrows():
                             val = str(r.get('VALOR_PAGO', '0'))
-                            data = str(r.get('DATA', ''))
-                            nome = str(r.get('NOME', ''))
-                            obs_completa = str(r.get('OBS', ''))
-                            
-                            texto_item = f"📅 {data} | 👤 {nome} | 💰 R$ {val}"
+                            texto_item = f"📅 {r.get('DATA', '')} | 👤 {r.get('NOME', '')} | 💰 R$ {val}"
                             opcoes_estorno.append(texto_item)
-                            
-                            # Guarda a linha do Financeiro e a OBS que contém o mapa de onde o dinheiro foi
-                            dict_estorno[texto_item] = {
-                                "linha_fin": r['LINHA_REAL'],
-                                "obs_completa": obs_completa
-                            }
+                            dict_estorno[texto_item] = {"linha_fin": r['LINHA_REAL'], "obs_completa": str(r.get('OBS', ''))}
                             
                         pagamento_alvo = st.selectbox("Selecione o pagamento para ESTORNAR:", ["---"] + opcoes_estorno)
                         
                         if pagamento_alvo != "---":
-                            dados_alvo = dict_estorno[pagamento_alvo]
-                            st.warning("⚠️ **Atenção:** Ao estornar, o valor será excluído do Financeiro e a dívida voltará a aparecer na ficha da cliente.")
+                            st.warning("⚠️ **Atenção:** O valor será excluído do Financeiro e a dívida voltará a aparecer na ficha da cliente.")
                             
                             if st.button("🗑️ Estornar Pagamento Permanentemente", type="primary"):
-                                with st.spinner("Estornando valores e restaurando a dívida..."):
+                                with st.spinner("Estornando valores sem quebrar as fórmulas..."):
                                     try:
-                                        # 1. DESTRÓI O REGISTRO DO FINANCEIRO
-                                        linha_fin_apagar = dados_alvo["linha_fin"]
-                                        planilha_mestre.worksheet("FINANCEIRO").delete_rows(linha_fin_apagar)
+                                        dados_alvo = dict_estorno[pagamento_alvo]
                                         
-                                        # 2. DEVOLVE O SALDO DEVEDOR NA ABA VENDAS
-                                        # Extrai o mapa "10:50.00|11:20.00" de dentro da observação
+                                        # 1. DEVOLVE O SALDO NA ABA VENDAS (Tirando da Coluna T)
                                         obs_text = dados_alvo["obs_completa"]
                                         if "[LOG_FIFO:" in obs_text:
                                             mapa_fifo = obs_text.split("[LOG_FIFO:")[1].replace("]", "")
@@ -1571,28 +1557,20 @@ elif menu_selecionado == "💰 Financeiro":
                                                 for pedaco in pedacos:
                                                     if ":" in pedaco:
                                                         linha_v, valor_abatido = pedaco.split(":")
-                                                        linha_v = int(linha_v)
-                                                        valor_abatido = float(valor_abatido)
+                                                        linha_v, valor_abatido = int(linha_v), float(valor_abatido)
                                                         
-                                                        # Pega o saldo devedor atual daquela linha e devolve o valor abatido
-                                                        saldo_atual_cell = aba_vendas_estorno.acell(f"U{linha_v}").value
-                                                        saldo_atual_num = limpar_v(saldo_atual_cell)
-                                                        novo_saldo = saldo_atual_num + valor_abatido
+                                                        # Busca o valor PAGO atual e subtrai o que foi estornado
+                                                        pago_atual_cell = aba_vendas_estorno.acell(f"T{linha_v}").value
+                                                        pago_atual_num = limpar_v(pago_atual_cell)
+                                                        novo_pago = max(0, pago_atual_num - valor_abatido)
                                                         
-                                                        aba_vendas_estorno.update_acell(f"U{linha_v}", novo_saldo)
-                                                        aba_vendas_estorno.update_acell(f"W{linha_v}", "Pendente") # Volta a ficar pendente
-                                                        
-                                        # 3. REGISTRA NA AUDITORIA
-                                        try:
-                                            import pytz
-                                            planilha_mestre.worksheet("LOG_AUDITORIA").append_row([
-                                                datetime.now(pytz.timezone('America/Sao_Paulo')).strftime("%d/%m/%Y %H:%M"),
-                                                st.session_state.get('usuario_logado', 'Sistema'), "ESTORNO FIFO", "-",
-                                                pagamento_alvo.split("|")[1].strip(), f"Estornou o pagamento de {pagamento_alvo.split('|')[2].strip()}"
-                                            ], value_input_option='USER_ENTERED')
-                                        except: pass
-
-                                        st.success("✅ Pagamento estornado e dívida restaurada com sucesso!")
+                                                        aba_vendas_estorno.update_acell(f"T{linha_v}", novo_pago)
+                                                        aba_vendas_estorno.update_acell(f"W{linha_v}", "Pendente")
+                                        
+                                        # 2. DESTRÓI O RECIBO NO FINANCEIRO
+                                        planilha_mestre.worksheet("FINANCEIRO").delete_rows(dados_alvo["linha_fin"])
+                                        
+                                        st.success("✅ Pagamento estornado e dívida restaurada com autonomia!")
                                         st.cache_data.clear(); st.cache_resource.clear()
                                         import time; time.sleep(1); st.rerun()
                                         
@@ -1604,10 +1582,8 @@ elif menu_selecionado == "💰 Financeiro":
                 st.info("ℹ️ A planilha financeira ainda está vazia.")
 
         except Exception as e:
-            if st.session_state.get('usuario_logado') == 'Admin':
-                st.error(f"Erro técnico: {e}")
-            else:
-                st.info("🕒 O histórico aparecerá após o primeiro recebimento ser registrado.")
+            if st.session_state.get('usuario_logado') == 'Admin': st.error(f"Erro técnico: {e}")
+            else: st.info("🕒 O histórico aparecerá após o primeiro recebimento ser registrado.")
 
     # ====================================================
     # ⚖️ PAINEL GERENCIAL DE INADIMPLÊNCIA E ACORDOS (CRM)
