@@ -4495,35 +4495,51 @@ elif menu_selecionado == "⚙️ Painel de Administração":
                 img_nova_logo = st.file_uploader("Selecione a Nova Logo (PNG/JPG)", type=['png', 'jpg', 'jpeg'])
                 
                 if st.form_submit_button("Substituir Logótipo e Extrair Cor 🚀", type="primary"):
+                    if st.form_submit_button("Substituir Logótipo e Extrair Cor 🚀", type="primary"):
                     if img_nova_logo:
-                        with st.spinner("A analisar os pixeis da imagem e a enviar para a nuvem..."):
-                            # 1. Inteligência Artificial: Extrair a Cor Dominante da Imagem
+                        with st.spinner("A analisar os pixeis da imagem e a gerar paleta inteligente..."):
+                            # 1. Inteligência Artificial: Matemática de Cores (UI/UX)
                             try:
                                 from PIL import Image
                                 import io
                                 imagem_pil = Image.open(io.BytesIO(img_nova_logo.getvalue())).convert("RGB")
-                                imagem_pil = imagem_pil.resize((50, 50)) # Encolhe para processar rápido
+                                imagem_pil = imagem_pil.resize((50, 50)) 
                                 cores = imagem_pil.getcolors(2500)
                                 cores.sort(key=lambda x: x[0], reverse=True)
                                 
-                                cor_dominante_hex = "#0056b3" # Cor padrão de segurança
                                 for count, cor in cores:
+                                    r, g, b = cor
                                     # Ignora branco puro e preto puro para achar a cor real da logo
-                                    if not (cor[0]>240 and cor[1]>240 and cor[2]>240) and not (cor[0]<15 and cor[1]<15 and cor[2]<15):
-                                        cor_dominante_hex = '#%02x%02x%02x' % cor
+                                    if not (r>240 and g>240 and b>240) and not (r<15 and g<15 and b<15):
+                                        # COR 1: A Cor Pura (Para Botões e Linha Direita)
+                                        cor_dominante_hex = '#%02x%02x%02x' % (r, g, b)
+                                        
+                                        # COR 2: O Fundo do Menu (Mistura a cor pura com 92% de Branco)
+                                        r_sec = int(r + (255 - r) * 0.92)
+                                        g_sec = int(g + (255 - g) * 0.92)
+                                        b_sec = int(b + (255 - b) * 0.92)
+                                        cor_secundaria_hex = '#%02x%02x%02x' % (r_sec, g_sec, b_sec)
+                                        
+                                        # COR 3: O Texto (Escurece a cor pura em 80% para dar contraste de leitura)
+                                        r_txt = int(r * 0.20)
+                                        g_txt = int(g * 0.20)
+                                        b_txt = int(b * 0.20)
+                                        cor_texto_hex = '#%02x%02x%02x' % (r_txt, g_txt, b_txt)
+                                        
+                                        # Atualiza a paleta completa no banco de dados automaticamente!
+                                        atualizar_config("COR_PRIMARIA", cor_dominante_hex)
+                                        atualizar_config("COR_SECUNDARIA", cor_secundaria_hex)
+                                        atualizar_config("COR_TEXTO", cor_texto_hex)
                                         break
-                                
-                                # Atualiza a cor no banco de dados automaticamente!
-                                atualizar_config("COR_PRIMARIA", cor_dominante_hex)
                             except Exception as e:
-                                print(f"Erro ao extrair cor: {e}")
+                                print(f"Erro ao extrair e calcular cores: {e}")
 
                             # 2. Sobe a imagem pro Cloudinary
                             id_logo, link_nova_logo = upload_para_cloudinary(img_nova_logo.getvalue(), "logo_oficial_cliente", "Configuracoes")
                             
                             if link_nova_logo:
                                 atualizar_config("LOGO_URL", link_nova_logo)
-                                st.success("✅ Logótipo atualizado e sistema repintado automaticamente! A atualizar ecrã...")
+                                st.success("✅ Logótipo e Paleta visual calculada com sucesso! A repintar o ecrã...")
                                 import time
                                 time.sleep(2)
                                 st.cache_data.clear(); st.cache_resource.clear(); st.rerun()
