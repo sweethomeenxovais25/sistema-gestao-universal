@@ -147,13 +147,74 @@ def conectar_google():
         if "gcp_service_account" in st.secrets:
             creds_info = st.secrets["gcp_service_account"]
             creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, ESPECIFICACOES)
-            return gspread.authorize(creds).open_by_key(ID_PLANILHA)
+            return gspread.authorize(creds).open_by_key(st.secrets["cliente"]["spreadsheet_id"])
         return None
     except Exception as e:
         st.error(f"Erro de ligação com a base de dados do cliente: {e}")
         st.stop()
 
 planilha_mestre = conectar_google()
+
+# ==========================================
+# 🧠 2.5. MOTOR WHITE-LABEL (LEITURA DINÂMICA)
+# ==========================================
+try:
+    aba_config = planilha_mestre.worksheet("CONFIGURACOES")
+    dados_config = aba_config.get_all_values()
+    # Transforma as duas colunas num dicionário prático
+    dicionario_config = {linha[0]: linha[1] for linha in dados_config if len(linha) > 1}
+    
+    NOME_LOJA = dicionario_config.get("NOME_LOJA", "Loja Universal")
+    LOGO_URL = dicionario_config.get("LOGO_URL", "https://cdn-icons-png.flaticon.com/512/3081/3081840.png")
+    
+    # As cores ainda vêm dos secrets (podem ir para a planilha no futuro se quiser)
+    COR_PRIMARIA = st.secrets["tema"]["cor_primaria"]
+    COR_SECUNDARIA = st.secrets["tema"]["cor_secundaria"]
+    COR_TEXTO = st.secrets["tema"]["cor_texto"]
+except:
+    NOME_LOJA = "Loja Universal"
+    LOGO_URL = ""
+    COR_PRIMARIA = "#A67B5B"
+    COR_SECUNDARIA = "#FCF8F2"
+    COR_TEXTO = "#31241b"
+
+# ==========================================
+# 1. CONFIGURAÇÃO ÚNICA DA PÁGINA
+# ==========================================
+st.set_page_config(page_title=f"Gestão | {NOME_LOJA}", page_icon=LOGO_URL, layout="wide")
+
+if 'autenticado' not in st.session_state: st.session_state['autenticado'] = False
+if 'historico_sessao' not in st.session_state: st.session_state['historico_sessao'] = []
+if 'historico_estoque' not in st.session_state: st.session_state['historico_estoque'] = []
+if 'carrinho' not in st.session_state: st.session_state['carrinho'] = []    
+
+def limpar_v(v):
+    if pd.isna(v) or v == "": return 0.0
+    numero = pd.to_numeric(str(v).replace('R$', '').replace('.', '').replace(',', '.').strip(), errors='coerce') or 0.0
+    return round(numero, 2)
+
+def limpar_texto(texto):
+    if not isinstance(texto, str): return ""
+    import unicodedata
+    texto_sem_acento = unicodedata.normalize('NFD', texto).encode('ascii', 'ignore').decode("utf-8")
+    return texto_sem_acento.lower().strip()
+
+estilo_dinamico = f"""
+<style>
+    [data-testid="stAppViewContainer"] {{ background-color: #ffffff !important; border-right: 12px solid {COR_PRIMARIA} !important; }}
+    [data-testid="stSidebar"] {{ background-color: {COR_SECUNDARIA} !important; border-right: 1px solid #e0e0e0 !important; }}
+    [data-testid="collapsedControl"] svg, [data-testid="collapsedControl"] path, [data-testid="stSidebar"] button svg, [data-testid="stSidebar"] button path {{ color: {COR_TEXTO} !important; fill: {COR_TEXTO} !important; stroke: {COR_TEXTO} !important; }}
+    .stMarkdown, p, span, label, div[data-testid="stMetricValue"] {{ color: {COR_TEXTO} !important; }}
+    h1, h2, h3, h4 {{ color: {COR_TEXTO} !important; }}
+    button[kind="primary"] {{ background-color: {COR_PRIMARIA} !important; color: #ffffff !important; font-weight: bold !important; border-radius: 6px !important; border: none !important; box-shadow: 2px 2px 8px rgba(0,0,0,0.1) !important; transition: all 0.2s ease-in-out !important; }}
+    button[kind="primary"]:hover {{ transform: scale(1.02); opacity: 0.9; }}
+    button[kind="primary"] p, button[kind="primary"] span {{ color: #ffffff !important; }}
+    #MainMenu {{visibility: hidden;}}
+    footer {{visibility: hidden;}}
+    header {{background-color: transparent !important;}}
+</style>
+"""
+st.markdown(estilo_dinamico, unsafe_allow_html=True)
 
 # ==========================================
 # 🔒 3. FASE DE LOGIN (AUTENTICAÇÃO INTELIGENTE)
