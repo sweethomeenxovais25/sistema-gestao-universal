@@ -4313,3 +4313,114 @@ elif menu_selecionado == "🏛️ Contabilidade e MEI":
             if st.button("Limpar Resposta"):
                 st.session_state['resposta_mei_ia'] = ""
                 st.rerun()
+
+# ==========================================================
+# ⚙️ SEÇÃO 9: PAINEL DE ADMINISTRAÇÃO (CÂMARA SECRETA)
+# ==========================================================
+elif menu_selecionado == "⚙️ Painel de Administração":
+    st.title("⚙️ Painel de Administração")
+    st.write("Gestão de utilizadores, acessos e segurança do sistema.")
+    st.info("🔒 Apenas utilizadores com nível 'Admin' têm acesso a esta área.")
+
+    # Carrega a base de dados de utilizadores
+    try:
+        aba_cred = planilha_mestre.worksheet("CREDENCIAIS")
+        dados_cred = aba_cred.get_all_values()
+        
+        if len(dados_cred) > 1:
+            import pandas as pd
+            df_cred = pd.DataFrame(dados_cred[1:], columns=dados_cred[0])
+        else:
+            df_cred = pd.DataFrame(columns=['NOME', 'USUARIO', 'SENHA', 'NIVEL', 'STATUS'])
+    except Exception as e:
+        st.error(f"Erro ao ligar ao cofre de credenciais: {e}")
+        df_cred = pd.DataFrame()
+
+    st.divider()
+
+    # --- 1. VISÃO GERAL DOS UTILIZADORES ---
+    st.write("### 👥 Utilizadores Atuais do Sistema")
+    if not df_cred.empty:
+        # Criamos uma cópia para mostrar na tela (escondendo a coluna de palavra-passe por segurança!)
+        df_view = df_cred[['NOME', 'USUARIO', 'NIVEL', 'STATUS']].copy()
+        
+        # Formatação de cores para o Status
+        def style_status(val):
+            if val == "Ativo": return 'background-color: #d4edda; color: #155724; font-weight: bold;'
+            if val == "Bloqueado": return 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
+            return ''
+
+        st.dataframe(
+            df_view.style.applymap(style_status, subset=['STATUS']),
+            use_container_width=True, 
+            hide_index=True
+        )
+    else:
+        st.warning("Nenhum utilizador encontrado.")
+
+    st.divider()
+
+    # --- 2. GESTÃO (CRIAR E EDITAR/BLOQUEAR) ---
+    col_add, col_edit = st.columns(2)
+
+    # LADO ESQUERDO: CRIAR NOVO FUNCIONÁRIO
+    with col_add:
+        st.write("#### ➕ Adicionar Novo Funcionário")
+        with st.form("form_add_user", clear_on_submit=True):
+            n_nome = st.text_input("Nome Completo")
+            n_user = st.text_input("Nome de Utilizador (Para o Login)", help="Use nomes curtos. Ex: maria, joao.vendas")
+            n_senha = st.text_input("Palavra-passe Inicial", type="password")
+            n_nivel = st.selectbox("Nível de Acesso", ["Vendedor", "Admin"])
+            
+            if st.form_submit_button("Salvar Utilizador 💾", type="primary"):
+                if n_nome and n_user and n_senha:
+                    # Verifica se o utilizador já existe para não duplicar
+                    if not df_cred.empty and n_user in df_cred['USUARIO'].values:
+                        st.error("⚠️ Este Nome de Utilizador já está em uso! Escolha outro.")
+                    else:
+                        with st.spinner("A criar acessos..."):
+                            aba_cred.append_row([n_nome, n_user, n_senha, n_nivel, "Ativo"], value_input_option='USER_ENTERED')
+                            st.success(f"✅ Funcionário(a) {n_nome} adicionado com sucesso!")
+                            st.cache_data.clear(); st.rerun()
+                else:
+                    st.warning("Preencha o Nome, Utilizador e Palavra-passe.")
+
+    # LADO DIREITO: BLOQUEAR OU ALTERAR PALAVRA-PASSE
+    with col_edit:
+        st.write("#### 🔒 Bloquear ou Alterar Acessos")
+        with st.form("form_edit_user"):
+            if not df_cred.empty:
+                lista_users = df_cred['USUARIO'].tolist()
+                u_alvo = st.selectbox("Selecione o Utilizador", ["---"] + lista_users)
+                
+                # Campos de edição
+                u_novo_status = st.radio("Status do Acesso", ["Ativo", "Bloqueado"], horizontal=True)
+                u_nova_senha = st.text_input("Nova Palavra-passe", type="password", help="Se não quiser alterar a palavra-passe, deixe este campo em branco.")
+                
+                if st.form_submit_button("Aplicar Alterações 🛡️"):
+                    if u_alvo != "---":
+                        # Proteção para o Admin não se bloquear a si próprio por engano
+                        if u_alvo == st.session_state.get('usuario_logado') and u_novo_status == "Bloqueado":
+                            st.error("⚠️ Medida de Segurança: Não pode bloquear o seu próprio utilizador atual.")
+                        else:
+                            with st.spinner("A aplicar políticas de segurança..."):
+                                try:
+                                    # Procura na coluna B (coluna 2 do GSheets) o utilizador exato
+                                    celula_user = aba_cred.find(u_alvo, in_column=2)
+                                    linha_alvo = celula_user.row
+                                    
+                                    # Atualiza o Status (Coluna E / Coluna 5)
+                                    aba_cred.update_cell(linha_alvo, 5, u_novo_status)
+                                    
+                                    # Se o dono digitou uma senha nova, atualiza também (Coluna C / Coluna 3)
+                                    if u_nova_senha.strip() != "":
+                                        aba_cred.update_cell(linha_alvo, 3, u_nova_senha)
+                                    
+                                    st.success(f"✅ Acessos de '{u_alvo}' atualizados!")
+                                    st.cache_data.clear(); st.rerun()
+                                except Exception as e:
+                                    st.error(f"Erro ao alterar: {e}")
+                    else:
+                        st.warning("Selecione um utilizador primeiro.")
+            else:
+                st.info("A aguardar dados.")
