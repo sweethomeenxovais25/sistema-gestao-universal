@@ -1111,18 +1111,41 @@ elif menu_selecionado == "💰 Financeiro":
             
             if c_ia2.button("🧠 Gerar Análise", type="primary", use_container_width=True):
                 with st.spinner("O CEO de Bolso está a analisar os seus dados..."):
-                    try:
-                        # 1. LEITURA ULTRA-RÁPIDA (Memória do sistema)
-                        total_vendas_qtd = len(df_vendas_hist) if not df_vendas_hist.empty else 0
-                        total_despesas = len(df_despesas) if not df_despesas.empty else 0
-                        
-                        produto_top = "Nenhum"
-                        if not df_vendas_hist.empty:
-                            try:
-                                nome_col_produto = df_vendas_hist.columns[5] 
-                                produto_top = df_vendas_hist[nome_col_produto].value_counts().idxmax()
-                            except:
-                                produto_top = "Não identificado"
+                    # 1. PREPARAÇÃO DO PROMPT (Igual ao anterior)
+                    total_vendas_qtd = len(df_vendas_hist) if not df_vendas_hist.empty else 0
+                    total_despesas = len(df_despesas) if not df_despesas.empty else 0
+                    
+                    prompt_ceo = f"Aja como um Diretor Financeiro da {NOME_LOJA}. Vendas: {total_vendas_qtd}. Despesas: {total_despesas}. Dê um conselho de gestão curto."
+
+                    # 2. LISTA DE MODELOS REAIS (Em ordem de preferência)
+                    # Nota: Removido 2.5 pois ainda não foi lançado.
+                    modelos_disponiveis = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-pro"]
+                    
+                    sucesso = False
+                    import requests
+                    chave_api = st.secrets["GOOGLE_API_KEY"]
+
+                    for modelo in modelos_disponiveis:
+                        try:
+                            url_google = f"https://generativelanguage.googleapis.com/v1/models/{modelo}:generateContent?key={chave_api}"
+                            payload = {"contents": [{"parts": [{"text": prompt_ceo}]}]}
+                            
+                            res = requests.post(url_google, json=payload, timeout=10)
+                            
+                            if res.status_code == 200:
+                                texto_gerado = res.json()['candidates'][0]['content']['parts'][0]['text']
+                                st.success(f"✅ Análise concluída (Via {modelo})")
+                                st.info(texto_gerado)
+                                sucesso = True
+                                break # Sai do loop assim que um funcionar
+                            elif res.status_code == 429:
+                                st.warning(f"⚠️ Limite de cota atingido no {modelo}. Tentando próximo...")
+                                continue
+                        except:
+                            continue
+
+                    if not sucesso:
+                        st.error("⚠️ O Google está com tráfego alto ou a cota gratuita expirou por agora. Tente novamente em 2 minutos.")
                         
                         # 2. ENGENHARIA DE PROMPT
                         prompt_ceo = f"""
