@@ -317,9 +317,16 @@ with st.sidebar:
 
     st.title("🛠️ Painel Sweet Home")
     
+    # 💡 O ESCUDO DE ACESSO: Apenas o Admin vê o menu de Configurações
+    opcoes_menu = ["🛒 Vendas", "💰 Financeiro", "📦 Estoque", "👥 Clientes", "📂 Documentos", "🏭 Compras e Despesas", "📢 Gestão de Marketing", "🏛️ Contabilidade e MEI"]
+    
+    # Se quem fez login for Admin, o sistema injeta uma aba secreta no final!
+    if st.session_state.get('nivel_acesso') == 'Admin':
+        opcoes_menu.append("⚙️ Painel de Administração")
+        
     menu_selecionado = st.radio(
         "Navegação",
-        ["🛒 Vendas", "💰 Financeiro", "📦 Estoque", "👥 Clientes", "📂 Documentos", "🏭 Compras e Despesas", "📢 Gestão de Marketing", "🏛️ Contabilidade e MEI"], 
+        opcoes_menu, 
         key="navegacao_principal_sweet"
     )
     
