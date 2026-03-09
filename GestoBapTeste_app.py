@@ -19,6 +19,8 @@ import requests
 import time
 import pytz
 
+# [As suas importações de bibliotecas continuam aqui em cima intactas...]
+
 def verificar_status_odoo(codigo_produto):
     cod_limpo = str(codigo_produto).strip()
     url_busca = f"https://sweethomecomfort.odoo.com/shop?&search={cod_limpo}"
@@ -26,11 +28,8 @@ def verificar_status_odoo(codigo_produto):
         headers = {'User-Agent': 'Mozilla/5.0'}
         resposta = requests.get(url_busca, headers=headers, timeout=10)
         conteudo = resposta.text.lower()
-        
-        # Validação rigorosa: se o código pesquisado não retorna produto
         if f'nenhum resultado para "{cod_limpo.lower()}"' in conteudo or "nenhum resultado encontrado" in conteudo:
             return False, ""
-        
         if "oe_product" in conteudo or "o_wsale_products_item" in conteudo:
             return True, url_busca
         return False, ""
@@ -38,23 +37,35 @@ def verificar_status_odoo(codigo_produto):
         return False, ""
 
 # ==========================================
+# 🧠 0. MOTOR WHITE-LABEL (IDENTIDADE DINÂMICA)
+# ==========================================
+# O sistema puxa os dados do cliente direto do st.secrets!
+try:
+    NOME_LOJA = st.secrets["cliente"]["nome_loja"]
+    LOGO_URL = st.secrets["cliente"]["logo_url"]
+    ID_PLANILHA = st.secrets["cliente"]["spreadsheet_id"]
+    
+    COR_PRIMARIA = st.secrets["tema"]["cor_primaria"]
+    COR_SECUNDARIA = st.secrets["tema"]["cor_secundaria"]
+    COR_TEXTO = st.secrets["tema"]["cor_texto"]
+except Exception as e:
+    st.error("⚠️ Falha ao ler as configurações do Cliente nos Secrets. Verifique o arquivo st.secrets.")
+    st.stop()
+
+# ==========================================
 # 1. CONFIGURAÇÃO ÚNICA DA PÁGINA
 # ==========================================
 st.set_page_config(
-    page_title="🧪 TESTE - Sweet Home", 
-    page_icon="logo_sweet_teste.png", 
+    page_title=f"Gestão | {NOME_LOJA}", 
+    page_icon=LOGO_URL, 
     layout="wide"
 )
 
 # Inicialização das Memórias de Sessão
-if 'autenticado' not in st.session_state:
-    st.session_state['autenticado'] = False
-if 'historico_sessao' not in st.session_state:
-    st.session_state['historico_sessao'] = []
-if 'historico_estoque' not in st.session_state:
-    st.session_state['historico_estoque'] = []
-if 'carrinho' not in st.session_state:
-    st.session_state['carrinho'] = []    
+if 'autenticado' not in st.session_state: st.session_state['autenticado'] = False
+if 'historico_sessao' not in st.session_state: st.session_state['historico_sessao'] = []
+if 'historico_estoque' not in st.session_state: st.session_state['historico_estoque'] = []
+if 'carrinho' not in st.session_state: st.session_state['carrinho'] = []    
     
 # --- AUXILIARES TÉCNICOS ---
 def limpar_v(v):
@@ -63,95 +74,61 @@ def limpar_v(v):
     return round(numero, 2)
 
 def limpar_texto(texto):
-    if not isinstance(texto, str):
-        return ""
+    if not isinstance(texto, str): return ""
     texto_sem_acento = unicodedata.normalize('NFD', texto).encode('ascii', 'ignore').decode("utf-8")
     return texto_sem_acento.lower().strip()
 
 # ==========================================
-# 🎨 1.5. IDENTIDADE VISUAL (SWEET CLEAN)
+# 🎨 1.5. IDENTIDADE VISUAL DINÂMICA (O CAMALEÃO)
 # ==========================================
-estilo_sweet_clean = """
+# Note que os códigos hexadecimais sumiram! Agora o CSS usa as variáveis (ex: {COR_PRIMARIA})
+estilo_dinamico = f"""
 <style>
-    /* 1. Tela Principal Branca com a Listra Café na Extrema Direita */
-    [data-testid="stAppViewContainer"] {
+    /* Tela Principal Branca com a Listra na cor Primária do Cliente */
+    [data-testid="stAppViewContainer"] {{
         background-color: #ffffff !important;
-        border-right: 12px solid #31241b !important;
-    }
+        border-right: 12px solid {COR_PRIMARIA} !important;
+    }}
     
-    /* 2. Barra Lateral (Tom Areia Muito Claro) */
-    [data-testid="stSidebar"] {
-        background-color: #FCF8F2 !important;
-        border-right: 1px solid #f6debc !important;
-    }
+    /* Barra Lateral na cor Secundária do Cliente */
+    [data-testid="stSidebar"] {{
+        background-color: {COR_SECUNDARIA} !important;
+        border-right: 1px solid #e0e0e0 !important;
+    }}
 
-    /* ✨ O EXORCISMO DA SETA FANTASMA ✨ */
+    /* A cor dos textos acompanha a configuração */
     [data-testid="collapsedControl"] svg, 
     [data-testid="collapsedControl"] path,
     [data-testid="stSidebar"] button svg,
-    [data-testid="stSidebar"] button path {
-        color: #31241b !important;
-        fill: #31241b !important;
-        stroke: #31241b !important;
-    }
+    [data-testid="stSidebar"] button path {{
+        color: {COR_TEXTO} !important;
+        fill: {COR_TEXTO} !important;
+        stroke: {COR_TEXTO} !important;
+    }}
 
-    .stMarkdown, p, span, label, div[data-testid="stMetricValue"] {
-        color: #31241b !important;
-    }
+    .stMarkdown, p, span, label, div[data-testid="stMetricValue"] {{ color: {COR_TEXTO} !important; }}
+    h1, h2, h3, h4 {{ color: {COR_TEXTO} !important; }}
 
-    h1, h2, h3, h4 {
-        color: #31241b !important;
-    }
-
-    /* 4. BOTÕES PRIMÁRIOS (Ações Fortes de Salvar/Enviar - Tom Caramelo) */
-    button[kind="primary"] {
-        background-color: #A67B5B !important; 
+    /* BOTÕES PRIMÁRIOS (Ações Fortes) */
+    button[kind="primary"] {{
+        background-color: {COR_PRIMARIA} !important; 
         color: #ffffff !important;
         font-weight: bold !important;
         border-radius: 6px !important;
         border: none !important;
         box-shadow: 2px 2px 8px rgba(0,0,0,0.1) !important;
         transition: all 0.2s ease-in-out !important;
-    }
-    
-    button[kind="primary"]:hover {
-        background-color: #8B5A2B !important;
-        transform: scale(1.02);
-    }
-    
-    button[kind="primary"] p, button[kind="primary"] span {
-        color: #ffffff !important;
-    }
-
-    /* 5. BOTÕES SECUNDÁRIOS (Abas de Navegação e Cancelamentos - Tom Bege da Logo) */
-    button[kind="secondary"] {
-        background-color: #F5E6CE !important; /* Bege Claro Quente */
-        color: #31241b !important; /* Letra na cor Café */
-        font-weight: bold !important;
-        border-radius: 6px !important;
-        border: 1px solid #EAE0D3 !important;
-        box-shadow: none !important;
-        transition: all 0.2s ease-in-out !important;
-    }
-    
-    button[kind="secondary"]:hover {
-        background-color: #E6D2B5 !important;
-        transform: scale(1.02);
-    }
-    
-    button[kind="secondary"] p, button[kind="secondary"] span {
-        color: #31241b !important;
-    }
+    }}
+    button[kind="primary"]:hover {{ transform: scale(1.02); opacity: 0.9; }}
+    button[kind="primary"] p, button[kind="primary"] span {{ color: #ffffff !important; }}
 
     /* Limpeza do cabeçalho e rodapé */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {background-color: transparent !important;}
+    #MainMenu {{visibility: hidden;}}
+    footer {{visibility: hidden;}}
+    header {{background-color: transparent !important;}}
 </style>
 """
-st.markdown(estilo_sweet_clean, unsafe_allow_html=True)
-
-from datetime import datetime # Certifique-se de que isso está no topo do seu arquivo
+st.markdown(estilo_dinamico, unsafe_allow_html=True)
 
 # ==========================================
 # 🔒 2. FASE DE LOGIN & SEGURANÇA
@@ -159,12 +136,11 @@ from datetime import datetime # Certifique-se de que isso está no topo do seu a
 if not st.session_state['autenticado']:
     col1, col2, col3 = st.columns([1, 1.5, 1])
     with col2:
-        try:
-            st.image("logo_sweet_teste.png", use_container_width=True)
-        except:
-            st.warning("🌸 Sweet Home Enxovais")
+        # A logo agora é puxada direto da nuvem/link do cliente!
+        try: st.image(LOGO_URL, use_container_width=True)
+        except: st.warning(f"🏢 {NOME_LOJA}")
         
-        st.markdown("<h2 style='text-align: center;'>Gestão Sweet</h2>", unsafe_allow_html=True)
+        st.markdown(f"<h2 style='text-align: center;'>Gestão | {NOME_LOJA}</h2>", unsafe_allow_html=True)
 
         with st.form("form_login"):
             usuario_input = st.text_input("Usuário").strip()
@@ -178,32 +154,24 @@ if not st.session_state['autenticado']:
                         if str(usuarios_permitidos[usuario_input]) == senha_input:
                             st.session_state['autenticado'] = True
                             st.session_state['usuario_logado'] = usuario_input
-                            
-                            # 💡 O SINAL: Avisamos ao sistema que precisa anotar o acesso!
-                            st.session_state['precisa_registrar_acesso'] = True 
-                            
-                            st.rerun() # Entra no sistema
-                        else:
-                            st.error("❌ Senha incorreta.")
-                    else:
-                        st.error("❌ Usuário não encontrado.")
+                            st.session_state['precisa_registrar_acesso'] = True
+                            st.rerun()
+                        else: st.error("❌ Senha incorreta.")
+                    else: st.error("❌ Usuário não encontrado.")
                 except Exception as e:
                     st.error("Erro ao acessar cofre de senhas. Verifique os Secrets.")
-    st.stop() # Bloqueia quem não logou
+    st.stop()
 
 # ==========================================
 # 🚀 3. SISTEMA LIBERADO (CONEXÕES E DADOS)
 # ==========================================
-
-# ID da Planilha Cobaia
-ID_PLANILHA = "1lXUnGrWtwV-IfIiUbGzLH3P2T-h3b6Mr9NEBCpwulXg"
 ESPECIFICACOES = [
     "https://spreadsheets.google.com/feeds", 
     'https://www.googleapis.com/auth/spreadsheets',
     "https://www.googleapis.com/auth/drive.file"
 ]
 
-# 👇 1. PRIMEIRO: O SISTEMA SE CONECTA AO GOOGLE E ABRE A PLANILHA (AGORA COM ESCUDO!)
+# 👇 A conexão agora usa o ID_PLANILHA que veio dos Secrets!
 @st.cache_resource
 def conectar_google():
     try:
@@ -213,7 +181,7 @@ def conectar_google():
             return gspread.authorize(creds).open_by_key(ID_PLANILHA)
         return None
     except Exception as e:
-        st.error(f"Erro de conexão: {e}")
+        st.error(f"Erro de conexão com o banco de dados do cliente: {e}")
         st.stop()
 
 planilha_mestre = conectar_google()
@@ -320,9 +288,9 @@ banco_de_produtos, banco_de_clientes, df_full_inv, df_financeiro, df_vendas_hist
 
 with st.sidebar:
     try:
-        st.image("logo_sweet_teste.png", use_container_width=True)
+        st.image(LOGO_URL, use_container_width=True)
     except:
-        st.write("🌸 **Sweet Home**")
+        st.write(f"🏢 **{NOME_LOJA}**")
     
     st.write(f"👋 Olá, **{st.session_state.get('usuario_logado', 'Usuária')}**!")
     st.divider()
