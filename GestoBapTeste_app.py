@@ -412,8 +412,7 @@ def carregar_dados():
     # Retornando TUDO (15 itens agora)
     return banco_prod, banco_cli, df_inv, df_fin, df_vendas, df_painel, df_cli, df_socios, df_aportes, df_docs, banco_forn, df_fornecedores, df_despesas, df_marketing, df_cred
 
-# Variáveis que recebem os dados (Atualizado com df_cred no final para bater com o return)
-banco_de_produtos, banco_de_clientes, df_full_inv, df_financeiro, df_vendas_hist, df_painel_resumo, df_clientes_full, df_socios, df_aportes, df_docs, banco_de_fornecedores, df_fornecedores, df_despesas, df_marketing, df_cred = carregar_dados()df_fornecedores, df_despesas, df_marketing = carregar_dados()
+banco_de_produtos, banco_de_clientes, df_full_inv, df_financeiro, df_vendas_hist, df_painel_resumo, df_clientes_full, df_socios, df_aportes, df_docs, banco_de_fornecedores, df_fornecedores, df_despesas, df_marketing, df_cred = carregar_dados()
 
 with st.sidebar:
     try: st.image(LOGO_URL, use_container_width=True)
