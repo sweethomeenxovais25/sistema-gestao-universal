@@ -364,19 +364,38 @@ def carregar_dados():
 banco_de_produtos, banco_de_clientes, df_full_inv, df_financeiro, df_vendas_hist, df_painel_resumo, df_clientes_full, df_socios, df_aportes, df_docs, banco_de_fornecedores, df_fornecedores, df_despesas, df_marketing = carregar_dados()
 
 with st.sidebar:
-    try:
-        st.image(LOGO_URL, use_container_width=True)
-    except:
-        st.write(f"🏢 **{NOME_LOJA}**")
+    try: st.image(LOGO_URL, use_container_width=True)
+    except: st.write(f"🏢 **{NOME_LOJA}**")
     
     st.write(f"👋 Olá, **{st.session_state.get('usuario_logado', 'Usuária')}**!")
+    
+    # 🔐 COMPLIANCE: O próprio usuário altera a sua senha secreta
+    with st.expander("👤 Meu Perfil / Segurança", expanded=False):
+        with st.form("form_trocar_senha"):
+            st.write("Altere a sua palavra-passe de acesso.")
+            nova_senha_user = st.text_input("Nova Palavra-passe", type="password")
+            
+            if st.form_submit_button("Atualizar 🔒", type="primary"):
+                if nova_senha_user:
+                    try:
+                        aba_cred_senha = planilha_mestre.worksheet("CREDENCIAIS")
+                        # Procura a linha do usuário logado na Coluna A (1)
+                        celula_eu = aba_cred_senha.find(st.session_state.get('usuario_logado'), in_column=1)
+                        # Atualiza a senha na Coluna C (3)
+                        aba_cred_senha.update_cell(celula_eu.row, 3, nova_senha_user.strip())
+                        st.success("Senha alterada com sucesso!")
+                    except Exception as e:
+                        st.error("Erro ao atualizar a senha no cofre.")
+                else:
+                    st.warning("Digite a nova senha.")
+                    
     st.divider()
     
     if st.button("Sair do Sistema 🚪", use_container_width=True):
         st.session_state['autenticado'] = False
         st.rerun()
 
-    st.title("🛠️ Painel Sweet Home")
+    st.title("🛠️ Painel de Operações")
     
     # 💡 O ESCUDO DE ACESSO COMPLETO (RBAC)
     if st.session_state.get('nivel_acesso') == 'Admin':
@@ -4387,108 +4406,108 @@ elif menu_selecionado == "🏛️ Contabilidade e MEI":
 # ==========================================================
 elif menu_selecionado == "⚙️ Painel de Administração":
     st.title("⚙️ Painel de Administração")
-    st.write("Gestão de utilizadores, acessos e segurança do sistema.")
-    st.info("🔒 Apenas utilizadores com nível 'Admin' têm acesso a esta área.")
+    st.write("Gestão de utilizadores e personalização da marca.")
+    
+    tab_equipe, tab_marca = st.tabs(["👥 Gestão de Equipe", "🎨 Personalização (Logo)"])
+    
+    # -----------------------------------------------------
+    # ABA 1: GESTÃO DE EQUIPE (O que já fizemos ontem)
+    # -----------------------------------------------------
+    with tab_equipe:
+        try:
+            aba_cred = planilha_mestre.worksheet("CREDENCIAIS")
+            dados_cred = aba_cred.get_all_values()
+            df_cred = pd.DataFrame(dados_cred[1:], columns=dados_cred[0]) if len(dados_cred) > 1 else pd.DataFrame(columns=['NOME', 'USUARIO', 'SENHA', 'NIVEL', 'STATUS'])
+        except: df_cred = pd.DataFrame()
 
-    # Carrega a base de dados de utilizadores
-    try:
-        aba_cred = planilha_mestre.worksheet("CREDENCIAIS")
-        dados_cred = aba_cred.get_all_values()
+        st.write("### 👥 Utilizadores Atuais")
+        if not df_cred.empty:
+            df_view = df_cred[['NOME', 'USUARIO', 'NIVEL', 'STATUS']].copy()
+            def style_status(val):
+                if val == "Ativo": return 'background-color: #d4edda; color: #155724; font-weight: bold;'
+                if val == "Bloqueado": return 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
+                return ''
+            st.dataframe(df_view.style.applymap(style_status, subset=['STATUS']), use_container_width=True, hide_index=True)
         
-        if len(dados_cred) > 1:
-            import pandas as pd
-            df_cred = pd.DataFrame(dados_cred[1:], columns=dados_cred[0])
-        else:
-            df_cred = pd.DataFrame(columns=['NOME', 'USUARIO', 'SENHA', 'NIVEL', 'STATUS'])
-    except Exception as e:
-        st.error(f"Erro ao ligar ao cofre de credenciais: {e}")
-        df_cred = pd.DataFrame()
+        st.divider()
+        col_add, col_edit = st.columns(2)
 
-    st.divider()
-
-    # --- 1. VISÃO GERAL DOS UTILIZADORES ---
-    st.write("### 👥 Utilizadores Atuais do Sistema")
-    if not df_cred.empty:
-        # Criamos uma cópia para mostrar na tela (escondendo a coluna de palavra-passe por segurança!)
-        df_view = df_cred[['NOME', 'USUARIO', 'NIVEL', 'STATUS']].copy()
-        
-        # Formatação de cores para o Status
-        def style_status(val):
-            if val == "Ativo": return 'background-color: #d4edda; color: #155724; font-weight: bold;'
-            if val == "Bloqueado": return 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
-            return ''
-
-        st.dataframe(
-            df_view.style.applymap(style_status, subset=['STATUS']),
-            use_container_width=True, 
-            hide_index=True
-        )
-    else:
-        st.warning("Nenhum utilizador encontrado.")
-
-    st.divider()
-
-    # --- 2. GESTÃO (CRIAR E EDITAR/BLOQUEAR) ---
-    col_add, col_edit = st.columns(2)
-
-    # LADO ESQUERDO: CRIAR NOVO FUNCIONÁRIO
-    with col_add:
-        st.write("#### ➕ Adicionar Novo Funcionário")
-        with st.form("form_add_user", clear_on_submit=True):
-            n_nome = st.text_input("Nome Completo")
-            n_user = st.text_input("Nome de Utilizador (Para o Login)", help="Use nomes curtos. Ex: maria, joao.vendas")
-            n_senha = st.text_input("Palavra-passe Inicial", type="password")
-            n_nivel = st.selectbox("Nível de Acesso", ["Vendedor", "Admin"])
-            
-            if st.form_submit_button("Salvar Utilizador 💾", type="primary"):
-                if n_nome and n_user and n_senha:
-                    # Verifica se o utilizador já existe para não duplicar
-                    if not df_cred.empty and n_user in df_cred['USUARIO'].values:
-                        st.error("⚠️ Este Nome de Utilizador já está em uso! Escolha outro.")
-                    else:
-                        with st.spinner("A criar acessos..."):
+        with col_add:
+            st.write("#### ➕ Novo Funcionário")
+            with st.form("form_add_user", clear_on_submit=True):
+                n_nome = st.text_input("Nome Completo")
+                n_user = st.text_input("Nome de Utilizador (Login)")
+                n_senha = st.text_input("Palavra-passe Provisória", type="password")
+                n_nivel = st.selectbox("Nível de Acesso", ["Vendedor", "Admin"])
+                
+                if st.form_submit_button("Criar Utilizador 💾", type="primary"):
+                    if n_nome and n_user and n_senha:
+                        with st.spinner("A salvar..."):
                             aba_cred.append_row([n_nome, n_user, n_senha, n_nivel, "Ativo"], value_input_option='USER_ENTERED')
-                            st.success(f"✅ Funcionário(a) {n_nome} adicionado com sucesso!")
-                            st.cache_data.clear(); st.rerun()
-                else:
-                    st.warning("Preencha o Nome, Utilizador e Palavra-passe.")
+                            st.success("Criado com sucesso!"); st.cache_data.clear(); st.rerun()
+                    else: st.warning("Preencha tudo.")
 
-    # LADO DIREITO: BLOQUEAR OU ALTERAR PALAVRA-PASSE
-    with col_edit:
-        st.write("#### 🔒 Bloquear ou Alterar Acessos")
-        with st.form("form_edit_user"):
-            if not df_cred.empty:
-                lista_users = df_cred['USUARIO'].tolist()
-                u_alvo = st.selectbox("Selecione o Utilizador", ["---"] + lista_users)
-                
-                # Campos de edição
-                u_novo_status = st.radio("Status do Acesso", ["Ativo", "Bloqueado"], horizontal=True)
-                u_nova_senha = st.text_input("Nova Palavra-passe", type="password", help="Se não quiser alterar a palavra-passe, deixe este campo em branco.")
-                
-                if st.form_submit_button("Aplicar Alterações 🛡️"):
-                    if u_alvo != "---":
-                        # Proteção para o Admin não se bloquear a si próprio por engano
-                        if u_alvo == st.session_state.get('usuario_logado') and u_novo_status == "Bloqueado":
-                            st.error("⚠️ Medida de Segurança: Não pode bloquear o seu próprio utilizador atual.")
-                        else:
-                            with st.spinner("A aplicar políticas de segurança..."):
-                                try:
-                                    # Procura na coluna B (coluna 2 do GSheets) o utilizador exato
+        with col_edit:
+            st.write("#### 🔒 Bloquear Acessos")
+            with st.form("form_edit_user"):
+                if not df_cred.empty:
+                    u_alvo = st.selectbox("Selecione o Utilizador", ["---"] + df_cred['USUARIO'].tolist())
+                    u_novo_status = st.radio("Status do Acesso", ["Ativo", "Bloqueado"], horizontal=True)
+                    u_nova_senha = st.text_input("Redefinir Palavra-passe (Opcional)", type="password")
+                    
+                    if st.form_submit_button("Aplicar Políticas 🛡️"):
+                        if u_alvo != "---":
+                            if u_alvo == st.session_state.get('usuario_logado') and u_novo_status == "Bloqueado":
+                                st.error("Não pode se bloquear.")
+                            else:
+                                with st.spinner("Alterando..."):
                                     celula_user = aba_cred.find(u_alvo, in_column=2)
-                                    linha_alvo = celula_user.row
+                                    aba_cred.update_cell(celula_user.row, 5, u_novo_status)
+                                    if u_nova_senha.strip() != "": aba_cred.update_cell(celula_user.row, 3, u_nova_senha)
+                                    st.success("Atualizado!"); st.cache_data.clear(); st.rerun()
+                else: st.info("Aguardando.")
+
+    # -----------------------------------------------------
+    # ABA 2: PERSONALIZAÇÃO DA MARCA (O NOVO PODER)
+    # -----------------------------------------------------
+    with tab_marca:
+        st.write("### 🎨 Alterar Logótipo do Sistema")
+        st.write("Faça o upload da imagem da sua empresa. Ela será atualizada no menu lateral e na tela de login de todos os utilizadores automaticamente.")
+        
+        c_logo1, c_logo2 = st.columns([1, 2])
+        
+        with c_logo1:
+            st.write("**Logo Atual:**")
+            try: st.image(LOGO_URL, width=150)
+            except: st.write("Logo não disponível.")
+            
+        with c_logo2:
+            with st.form("form_nova_logo", clear_on_submit=True):
+                img_nova_logo = st.file_uploader("Selecione a Nova Logo (PNG preferencialmente)", type=['png', 'jpg', 'jpeg'])
+                
+                if st.form_submit_button("Substituir Logótipo 🚀", type="primary"):
+                    if img_nova_logo:
+                        with st.spinner("Enviando logo para a nuvem..."):
+                            # 1. Sobe a imagem pro Cloudinary do cliente
+                            id_logo, link_nova_logo = upload_para_cloudinary(img_nova_logo.getvalue(), "logo_oficial_cliente", "Configuracoes")
+                            
+                            if link_nova_logo:
+                                try:
+                                    aba_conf = planilha_mestre.worksheet("CONFIGURACOES")
+                                    # 2. Acha onde tá escrito "LOGO_URL" na coluna A
+                                    celula_logo = aba_conf.find("LOGO_URL", in_column=1)
+                                    # 3. Substitui o valor na Coluna B
+                                    aba_conf.update_cell(celula_logo.row, 2, link_nova_logo)
                                     
-                                    # Atualiza o Status (Coluna E / Coluna 5)
-                                    aba_cred.update_cell(linha_alvo, 5, u_novo_status)
-                                    
-                                    # Se o dono digitou uma senha nova, atualiza também (Coluna C / Coluna 3)
-                                    if u_nova_senha.strip() != "":
-                                        aba_cred.update_cell(linha_alvo, 3, u_nova_senha)
-                                    
-                                    st.success(f"✅ Acessos de '{u_alvo}' atualizados!")
-                                    st.cache_data.clear(); st.rerun()
+                                    st.success("✅ Identidade visual atualizada com sucesso! A página recarregará em instantes.")
+                                    import time
+                                    time.sleep(2)
+                                    st.cache_data.clear()
+                                    st.cache_resource.clear()
+                                    st.rerun()
                                 except Exception as e:
-                                    st.error(f"Erro ao alterar: {e}")
+                                    st.error(f"Erro ao salvar configuração no banco: {e}")
+                            else:
+                                st.error("Falha no upload para o servidor de imagens.")
                     else:
-                        st.warning("Selecione um utilizador primeiro.")
-            else:
-                st.info("A aguardar dados.")
+                        st.warning("⚠️ Selecione uma imagem primeiro.")
