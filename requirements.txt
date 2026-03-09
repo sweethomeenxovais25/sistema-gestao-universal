@@ -1,0 +1,10 @@
+streamlit
+pandas
+gspread
+oauth2client
+cloudinary
+google-generativeai
+Pillow
+requests
+pytz
+plotly
