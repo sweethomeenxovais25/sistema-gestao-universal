@@ -144,7 +144,7 @@ ESPECIFICACOES = [
     "https://www.googleapis.com/auth/drive.file"
 ]
 
-@st.cache_resource
+@st.cache_resource(show_spinner=False)
 def conectar_google():
     try:
         from oauth2client.service_account import ServiceAccountCredentials
@@ -4521,8 +4521,10 @@ elif menu_selecionado == "⚙️ Painel de Administração":
             c_nome1, c_nome2 = st.columns([3, 1])
             novo_nome_loja = c_nome1.text_input("Nome da Loja/Empresa", value=NOME_LOJA)
             
-            # Usamos o st.markdown para empurrar o botão para baixo e alinhar com o campo de texto
+            # Alinhamento vertical do botão
             c_nome2.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+            
+            # O st.rerun() SÓ PODE ACONTECER se o botão for clicado!
             if c_nome2.form_submit_button("Atualizar Nome 💾", type="primary", use_container_width=True):
                 if novo_nome_loja.strip() != "":
                     with st.spinner("A atualizar nome no banco de dados..."):
@@ -4530,7 +4532,9 @@ elif menu_selecionado == "⚙️ Painel de Administração":
                         st.success("✅ Nome atualizado! O sistema será reiniciado.")
                         import time
                         time.sleep(1)
-                        st.cache_data.clear(); st.cache_resource.clear(); st.rerun()
+                        st.cache_data.clear()
+                        st.cache_resource.clear()
+                        st.rerun()
                 else:
                     st.warning("O nome não pode ficar vazio.")
                     
