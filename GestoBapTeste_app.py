@@ -2310,7 +2310,7 @@ elif menu_selecionado == "💰 Financeiro":
                     st.markdown(btn_prev_html, unsafe_allow_html=True)
                 
                 # ---------------------------------------------------------
-                # 4. MÓDULO DE IA SOB DEMANDA
+                # 4. MÓDULO DE IA SOB DEMANDA (API REST BLINDADA)
                 # ---------------------------------------------------------
                 st.markdown("---")
                 st.write("✨ **Precisa de uma abordagem diferente?**")
@@ -2324,10 +2324,6 @@ elif menu_selecionado == "💰 Financeiro":
                     
                     with st.spinner("🤖 Consultando a IA (Modo Seguro)..."):
                         try:
-                            import google.generativeai as genai
-                            genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-                            
-                            # 💡 BLINDAGEM 3: IA entende que atua pelo nome da loja do SaaS
                             prompt = f"""
                             Você atua no Setor Financeiro da '{NOME_LOJA}'. 
                             Reescreva a mensagem abaixo para deixá-la incrivelmente empática e persuasiva, mas sem perder a educação. 
@@ -2342,24 +2338,40 @@ elif menu_selecionado == "💰 Financeiro":
                             {msg_base_ia}
                             """
                             
-                            # 💡 BLINDAGEM 4: Removemos o modelo fantasma (2.5) para evitar erros
+                            # 🚀 CHAMADA DIRETA E SEGURA (Sem usar a biblioteca que trava)
+                            import requests
+                            if "GOOGLE_API_KEY" not in st.secrets:
+                                st.error("⚠️ Chave 'GOOGLE_API_KEY' não encontrada nos Secrets!")
+                                st.stop()
+                                
+                            chave_api = st.secrets["GOOGLE_API_KEY"]
                             modelos = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-pro"]
-                            resultado_ia = None
+                            
+                            sucesso_ia = False
+                            texto_final_ia = ""
                             
                             for m in modelos:
                                 try:
-                                    modelo_gen = genai.GenerativeModel(m)
-                                    resultado_ia = modelo_gen.generate_content(prompt)
-                                    if resultado_ia:
-                                        break
-                                except: continue
-                                
-                            if resultado_ia:
+                                    url_google = f"https://generativelanguage.googleapis.com/v1/models/{m}:generateContent?key={chave_api}"
+                                    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+                                    
+                                    resposta = requests.post(url_google, json=payload, timeout=15)
+                                    
+                                    if resposta.status_code == 200:
+                                        dados_retorno = resposta.json()
+                                        texto_final_ia = dados_retorno['candidates'][0]['content']['parts'][0]['text']
+                                        sucesso_ia = True
+                                        break # Funcionou, sai do loop
+                                except:
+                                    continue # Deu erro de internet, tenta o próximo modelo
+                                    
+                            # 🚀 RESULTADO FINAL DA IA
+                            if sucesso_ia:
                                 st.success("✨ Mensagem Otimizada com Sucesso!")
-                                texto_final_ia = st.text_area("Revise a mensagem da IA:", value=resultado_ia.text.strip(), height=250)
+                                texto_editado = st.text_area("Revise a mensagem da IA:", value=texto_final_ia.strip(), height=250)
                                 
-                                # Botão Nativo (st.link_button) para garantir que os Emojis gerados pela IA não quebrem
-                                url_ia = f"https://wa.me/{tel_c}?text={urllib.parse.quote(texto_final_ia)}"
+                                # Botão Nativo (st.link_button)
+                                url_ia = f"https://wa.me/{tel_c}?text={urllib.parse.quote(texto_editado)}"
                                 st.link_button("📲 Enviar Mensagem da IA", url_ia, use_container_width=True, type="primary")
                                 
                                 st.write("") # Espaçinho visual
@@ -2367,7 +2379,7 @@ elif menu_selecionado == "💰 Financeiro":
                                     st.session_state['ia_ficha_ativa'] = False
                                     st.rerun()
                             else:
-                                st.error("⚠️ Nenhum modelo de IA suportado encontrado na sua API.")
+                                st.error("⚠️ O Google está sobrecarregado ou a cota expirou. Tente novamente em instantes.")
                         except Exception as e_ia:
                             st.error(f"⚠️ Erro de comunicação com o Google: {e_ia}")
 
