@@ -1204,9 +1204,6 @@ elif menu_selecionado == "💰 Financeiro":
                             st.info(texto_gerado)
                         else:
                             st.error("⚠️ Infelizmente nenhum dos modelos de IA respondeu no momento. Verifique sua conexão ou limite de cota da API.")
-                        
-                    except Exception as e:
-                        st.error(f"⚠️ Erro ao comunicar com a IA. Detalhe: {e}")
     
     st.divider()
     
