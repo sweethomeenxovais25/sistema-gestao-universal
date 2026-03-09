@@ -586,7 +586,8 @@ if menu_selecionado == "🛒 Vendas":
     # ==========================================
     with st.container(border=True):
         # 1. Título centralizado e DENTRO do quadro para ditar a largura total
-        st.markdown("<h3 style='text-align: center;'>🛒 Registro de Venda</h3>", unsafe_allow_html=True)
+        # 💡 WHITE-LABEL: Agora o título puxa o nome da loja dinamicamente
+        st.markdown(f"<h3 style='text-align: center;'>🛒 Registro de Venda - {NOME_LOJA}</h3>", unsafe_allow_html=True)
         st.divider()
 
         # 2. Mantendo EXATAMENTE a sua estrutura original: um embaixo do outro
@@ -604,7 +605,30 @@ if menu_selecionado == "🛒 Vendas":
             
             c_nome_novo = st.text_input("Nome Completo (se novo)", key="venda_nome_novo")
             c_zap = st.text_input("WhatsApp", value=telefone_sugerido, key=f"zap_venda_input_{c_sel}")
-            vendedor = st.text_input("Vendedor(a)", value="Bia", key="venda_vendedor_input")
+            
+            # ========================================================
+            # 💡 PONTO 6: SELETOR DE VENDEDOR DINÂMICO (ADEUS, "BIA" FIXA!)
+            # ========================================================
+            if not df_cred.empty and 'STATUS' in df_cred.columns and 'NOME' in df_cred.columns:
+                # Puxa apenas os funcionários que estão com status "Ativo"
+                lista_vendedores = df_cred[df_cred['STATUS'] == 'Ativo']['NOME'].tolist()
+            else:
+                # Se a planilha estiver vazia, usa o nome de quem logou
+                lista_vendedores = [st.session_state.get('usuario_logado', 'Vendedor(a)')]
+            
+            # Descobre a posição do usuário logado na lista para deixá-lo como padrão
+            usuario_atual = st.session_state.get('usuario_logado', '')
+            try: 
+                idx_vendedor_padrao = lista_vendedores.index(usuario_atual)
+            except: 
+                idx_vendedor_padrao = 0
+                # Proteção extra: se o usuário logado não estiver na lista por algum motivo, adiciona ele
+                if usuario_atual and usuario_atual not in lista_vendedores:
+                    lista_vendedores.insert(0, usuario_atual)
+
+            # O text_input virou um selectbox inteligente!
+            vendedor = st.selectbox("Vendedor(a) Responsável", lista_vendedores, index=idx_vendedor_padrao, key="venda_vendedor_sel")
+            # ========================================================
 
         with col_v2:
             # 3. O "espaço vazio" à direita é protegido aqui para as parcelas do Sweet Flex
