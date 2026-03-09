@@ -50,7 +50,6 @@ try:
     COR_PRIMARIA = st.secrets["tema"]["cor_primaria"]
     COR_SECUNDARIA = st.secrets["tema"]["cor_secundaria"]
     COR_TEXTO = st.secrets["tema"]["cor_texto"]
-
 try:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 except:
