@@ -489,6 +489,19 @@ with st.sidebar:
         except Exception as e:
             st.error(f"Erro ao carregar o relatório de acessos: {e}")
 
+# [Restante do código do seu Menu Lateral...]
+    
+    st.divider()
+    # ⚡ ASSINATURA DISCRETA DO SAAS (GestoBap)
+    st.markdown(
+        """
+        <div style='text-align: center; color: #888888; font-size: 11px; padding-bottom: 10px;'>
+            ⚡ Powered by <b>GestoBap</b>
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
+
 # ==========================================
 # --- SEÇÃO 1: VENDAS (SISTEMA DE CARRINHO MULTI-ITENS) ---
 # ==========================================
