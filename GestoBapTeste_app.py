@@ -1138,8 +1138,14 @@ elif menu_selecionado == "💰 Financeiro":
                         Use um tom profissional, acolhedor e termine com uma frase de incentivo. Seja conciso.
                         """
                         
-                        # 3. CHAMADA DIRETA À API DO GOOGLE (À PROVA DE FALHAS NO STREAMLIT)
+                        # 3. CHAMADA DIRETA À API DO GOOGLE (COM VALIDAÇÃO DE CHAVE)
                         import requests
+                        
+                        # Verifica se a chave existe antes de tentar usar
+                        if "GOOGLE_API_KEY" not in st.secrets:
+                            st.error("⚠️ Chave 'GOOGLE_API_KEY' não encontrada nos Secrets do Streamlit!")
+                            st.stop()
+                            
                         chave_api = st.secrets["GOOGLE_API_KEY"]
                         url_google = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={chave_api}"
                         
@@ -1148,7 +1154,7 @@ elif menu_selecionado == "💰 Financeiro":
                             "contents": [{"parts": [{"text": prompt_ceo}]}]
                         }
                         
-                        # Dispara a requisição com um limite de tempo (timeout) para nunca entrar em loop infinito
+                        # Dispara a requisição
                         resposta_google = requests.post(url_google, headers=cabecalho, json=carga_dados, timeout=15)
                         
                         if resposta_google.status_code == 200:
