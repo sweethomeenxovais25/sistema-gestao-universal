@@ -1100,58 +1100,50 @@ elif menu_selecionado == "💰 Financeiro":
     # ==========================================================
     # 🧠 CEO DE BOLSO (INTELIGÊNCIA ARTIFICIAL FINANCEIRA)
     # ==========================================================
-    # Apenas Admin e Gerência têm acesso ao Conselheiro de IA
     if st.session_state.get('nivel_acesso') in ['Admin', 'Admin (Acesso Total)', 'Gerência (Intermediário)']:
         with st.expander("✨ Relatório Executivo Inteligente (CEO de Bolso)", expanded=True):
             c_ia1, c_ia2 = st.columns([3, 1])
-            c_ia1.write(f"Olá, **{st.session_state.get('usuario_logado', 'Gestor')}**! Quer que a Inteligência Artificial analise os números da **{NOME_LOJA}** e gere um resumo com conselhos práticos para hoje?")
+            c_ia1.write(f"Olá, **{st.session_state.get('usuario_logado', 'Gestor')}**! Quer que a Inteligência Artificial analise os números da **{NOME_LOJA}** e gere um conselho prático para hoje?")
             
-            if c_ia2.button("🧠 Gerar Análise agora", type="primary", use_container_width=True):
+            if c_ia2.button("🧠 Gerar Análise", type="primary", use_container_width=True):
                 with st.spinner("O CEO de Bolso está a analisar os seus dados..."):
                     try:
-                        # 1. RECOLHA DE DADOS (Puxa do banco de dados)
-                        aba_vendas = planilha_mestre.worksheet("VENDAS")
-                        df_v = pd.DataFrame(aba_vendas.get_all_records())
+                        # 1. LEITURA ULTRA-RÁPIDA (Puxa os dados que já estão na memória do sistema!)
+                        total_vendas_qtd = len(df_vendas_hist) if not df_vendas_hist.empty else 0
+                        total_despesas = len(df_despesas) if not df_despesas.empty else 0
                         
-                        # Tenta puxar despesas (se a aba existir com esse nome)
-                        try:
-                            aba_despesas = planilha_mestre.worksheet("DESPESAS") # ou o nome exato da sua aba
-                            df_d = pd.DataFrame(aba_despesas.get_all_records())
-                            total_despesas = len(df_d)
-                        except:
-                            total_despesas = "Não avaliado"
-
-                        # Calcula métricas rápidas
-                        total_vendas_qtd = len(df_v)
-                        # Descobre o produto mais vendido (se a coluna existir)
-                        if 'PRODUTO' in df_v.columns:
-                            produto_top = df_v['PRODUTO'].value_counts().idxmax() if not df_v.empty else "Nenhum"
-                        else:
-                            produto_top = "Não identificado"
+                        produto_top = "Nenhum"
+                        if not df_vendas_hist.empty:
+                            try:
+                                # A coluna 5 (índice 4 ou 5) costuma ser o nome do produto. Pegamos o que mais repete.
+                                nome_col_produto = df_vendas_hist.columns[5] 
+                                produto_top = df_vendas_hist[nome_col_produto].value_counts().idxmax()
+                            except:
+                                produto_top = "Não identificado"
                         
-                        # 2. ENGENHARIA DE PROMPT (Instruções para o Gemini)
+                        # 2. ENGENHARIA DE PROMPT (O cérebro)
                         prompt_ceo = f"""
-                        Aja como um Diretor Financeiro (CFO) amigável e experiente de uma loja chamada {NOME_LOJA}. 
-                        Analise os seguintes dados resumidos do sistema:
-                        - Total de vendas registadas no sistema: {total_vendas_qtd}
-                        - Produto mais popular atualmente: {produto_top}
-                        - Registo de despesas na base de dados: {total_despesas}
+                        Aja como um Diretor Financeiro (CFO) amigável de uma loja chamada {NOME_LOJA}. 
+                        Analise os seguintes dados rápidos:
+                        - Vendas totais na história: {total_vendas_qtd}
+                        - Despesas/Compras registadas: {total_despesas}
+                        - Produto mais vendido no momento: {produto_top}
                         
                         Crie um resumo executivo de 2 parágrafos. 
-                        No primeiro parágrafo, dê um panorama geral e motive o gestor.
-                        No segundo parágrafo, dê uma sugestão prática de gestão (ex: fazer uma promoção do produto mais vendido, ou alertar para controlar despesas).
-                        Use um tom profissional, acolhedor e termine com uma frase de incentivo. Use emojis de forma moderada. Não invente valores financeiros que não foram fornecidos.
+                        No primeiro parágrafo, dê um panorama geral motivador.
+                        No segundo parágrafo, dê uma sugestão prática de gestão baseada nestes dados.
+                        Use um tom profissional, acolhedor e termine com uma frase de incentivo. Seja conciso.
                         """
                         
-                        # 3. CHAMADA À INTELIGÊNCIA ARTIFICIAL
-                        modelo = genai.GenerativeModel('gemini-2.5-flash')
+                        # 3. CHAMADA À IA (Gemini 1.5 Flash - Mais rápido e estável)
+                        modelo = genai.GenerativeModel('gemini-1.5-flash')
                         resposta_ia = modelo.generate_content(prompt_ceo)
                         
-                        st.success("✅ Análise concluída!")
+                        st.success("✅ Análise concluída em segundos!")
                         st.info(resposta_ia.text)
                         
                     except Exception as e:
-                        st.error(f"⚠️ Não foi possível gerar a análise no momento. Verifique se há dados suficientes nas planilhas. (Erro: {e})")
+                        st.error(f"⚠️ Erro ao gerar análise. O sistema de IA pode estar a aquecer. Detalhe: {e}")
     
     st.divider()
     
