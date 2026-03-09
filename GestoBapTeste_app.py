@@ -88,6 +88,20 @@ def limpar_texto(texto):
     texto_sem_acento = unicodedata.normalize('NFD', texto).encode('ascii', 'ignore').decode("utf-8")
     return texto_sem_acento.lower().strip()
 
+def buscar_cep_magico(cep):
+    """Vai à internet buscar os dados do endereço usando a API pública e gratuita do ViaCEP"""
+    cep_limpo = str(cep).replace("-", "").replace(".", "").strip()
+    if len(cep_limpo) == 8:
+        try:
+            url = f"https://viacep.com.br/ws/{cep_limpo}/json/"
+            resposta = requests.get(url, timeout=5)
+            dados = resposta.json()
+            if "erro" not in dados:
+                return dados
+        except:
+            return None
+    return None
+
 def gerar_hash_senha(senha):
     """Transforma a senha em um código criptografado irreversível (SHA-256)"""
     return hashlib.sha256(str(senha).encode('utf-8')).hexdigest()
@@ -2456,11 +2470,14 @@ elif menu_selecionado == "📦 Estoque":
     st.dataframe(df_ver, use_container_width=True, hide_index=True)
     
 # ==========================================
-# --- SEÇÃO 4: CLIENTES ---
+# --- SEÇÃO 4: CLIENTES E CRM ---
 # ==========================================
 elif menu_selecionado == "👥 Clientes":
     st.subheader("👥 Gestão de Clientes e CRM")
 
+    # ==========================================
+    # 🎯 CRM INTACTO (Com ajuste White-Label no Zap)
+    # ==========================================
     if not df_vendas_hist.empty and not df_clientes_full.empty:
         df_v_crm = df_vendas_hist.copy()
         df_v_crm['DATA_DATETIME'] = pd.to_datetime(df_v_crm['DATA DA VENDA'], format='%d/%m/%Y', errors='coerce')
@@ -2477,6 +2494,7 @@ elif menu_selecionado == "👥 Clientes":
                 df_c_crm = df_clientes_full.rename(columns={df_clientes_full.columns[0]: 'CÓD. CLIENTE', df_clientes_full.columns[1]: 'NOME', df_clientes_full.columns[2]: 'ZAP'})
                 sumidas_full = sumidas.merge(df_c_crm[['CÓD. CLIENTE', 'NOME', 'ZAP']], on='CÓD. CLIENTE', how='left')
                 
+                import urllib.parse
                 for _, cliente in sumidas_full.iterrows():
                     dias = int(cliente['DIAS_AUSENTE'])
                     nome = str(cliente['NOME'])
@@ -2486,7 +2504,7 @@ elif menu_selecionado == "👥 Clientes":
                     c_crm1.write(f"👤 **{nome}** (Última compra há {dias} dias)")
                     
                     if zap and zap != "nan":
-                        msg_recuperacao = f"Olá {nome.split(' ')[0]}! Que saudade de você aqui na Sweet Home Enxovais 🌸. Preparamos novidades lindas e um mimo especial para você. Como você está?"
+                        msg_recuperacao = f"Olá {nome.split(' ')[0]}! Que saudade de você aqui na {NOME_LOJA} 🌸. Preparamos novidades lindas e um mimo especial para você. Como você está?"
                         c_crm2.link_button("📲 Enviar Mensagem", f"https://wa.me/55{zap}?text={urllib.parse.quote(msg_recuperacao)}", use_container_width=True)
                     else:
                         c_crm2.write("❌ Sem Zap")
@@ -2496,11 +2514,43 @@ elif menu_selecionado == "👥 Clientes":
 
     st.divider()
 
-    # 💡 Memória para o Recibo de Confirmação
+    # ==========================================
+    # 🧠 MEMÓRIAS DO SISTEMA
+    # ==========================================
     if 'recibo_novo_cliente' not in st.session_state:
         st.session_state['recibo_novo_cliente'] = None
+    if 'form_endereco_magico' not in st.session_state:
+        st.session_state['form_endereco_magico'] = ""
 
+    # ==========================================
+    # ➕ CADASTRO DE CLIENTE COM AUTO-CEP
+    # ==========================================
     with st.expander("➕ Cadastrar Nova Cliente (Sem compra atual)", expanded=False):
+        
+        # 📍 O BUSCADOR DE CEP (Fica fora do formulário para não interferir no salvamento)
+        st.write("##### 📍 Preencher endereço rapidamente")
+        c_cep1, c_cep2, c_cep3 = st.columns([2, 1, 3])
+        cep_digitado = c_cep1.text_input("Digite o CEP", max_chars=9, placeholder="Ex: 01001000")
+        
+        c_cep2.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+        if c_cep2.button("🔍 Buscar Endereço", type="secondary"):
+            if cep_digitado:
+                with st.spinner("Buscando..."):
+                    dados_endereco = buscar_cep_magico(cep_digitado) # A função que criamos lá no topo!
+                    if dados_endereco:
+                        # Monta a frase bonitinha para a sua planilha
+                        endereco_montado = f"{dados_endereco.get('logradouro', '')}, Bairro {dados_endereco.get('bairro', '')}, {dados_endereco.get('localidade', '')} - {dados_endereco.get('uf', '')} | CEP: {cep_digitado}"
+                        st.session_state['form_endereco_magico'] = endereco_montado
+                        st.success("Endereço encontrado!")
+                        import time; time.sleep(1); st.rerun()
+                    else:
+                        st.error("CEP não encontrado.")
+            else:
+                st.warning("Digite o CEP.")
+
+        st.divider()
+
+        # 📝 O SEU FORMULÁRIO INTACTO (Apenas puxando a memória no campo de Endereço)
         with st.form("form_novo_manual", clear_on_submit=True):
             st.markdown("Código gerado automaticamente.")
             c1, c2 = st.columns([2, 1])
@@ -2508,7 +2558,8 @@ elif menu_selecionado == "👥 Clientes":
             n_zap = c2.text_input("WhatsApp *")
             
             c3, c4 = st.columns([3, 1])
-            n_end = c3.text_input("Endereço")
+            # A MÁGICA ACONTECE AQUI: O 'value' puxa o endereço montado pelo CEP
+            n_end = c3.text_input("Endereço", value=st.session_state['form_endereco_magico'])
             n_vale = c4.number_input("Vale Desconto", 0.0)
             
             if st.form_submit_button("Salvar Cadastro 💾"):
@@ -2522,7 +2573,6 @@ elif menu_selecionado == "👥 Clientes":
                             aba_cli_sheet = planilha_mestre.worksheet("CARTEIRA DE CLIENTES")
                             dados_c = aba_cli_sheet.get_all_values()
                             
-                            # 💡 NOVO GERADOR DE ID BLINDADO
                             if len(dados_c) > 1:
                                 ultimo_cod = str(dados_c[-1][0])
                                 try: prox_num = int(ultimo_cod.replace("CLI-", "")) + 1
@@ -2533,29 +2583,25 @@ elif menu_selecionado == "👥 Clientes":
                             codigo = f"CLI-{prox_num:03d}"
                             status_cad = "Completo" if n_end.strip() else "Incompleto"
                             
-                            # Monta a linha exata
                             linha_cliente = [codigo, n_nome.strip(), n_zap.strip(), n_end.strip(), agora, n_vale, "", status_cad]
                             
-                            # ==========================================
-                            # 💡 A TÉCNICA DAS LINHAS (FIM DA LINHA 1000)
-                            # ==========================================
                             try:
-                                # 1º Tenta achar a linha de TOTAIS (se houver) e insere acima dela
                                 cel_tot_cli = aba_cli_sheet.find("TOTAIS")
                                 aba_cli_sheet.insert_row(linha_cliente, index=cel_tot_cli.row, value_input_option='USER_ENTERED')
                             except:
-                                # 2º Se não tiver TOTAIS, lê a Coluna A e insere logo após o último texto real
                                 valores_colA = aba_cli_sheet.col_values(1)
                                 linhas_reais = [v for v in valores_colA if str(v).strip() != ""]
                                 prox_linha = len(linhas_reais) + 1
                                 aba_cli_sheet.insert_row(linha_cliente, index=prox_linha, value_input_option='USER_ENTERED')
                             
-                            # 💡 GERA O COMPROVANTE NA MEMÓRIA
                             st.session_state['recibo_novo_cliente'] = {
                                 "codigo": codigo,
                                 "nome": n_nome.strip(),
                                 "zap": n_zap.strip()
                             }
+                            
+                            # Limpa a memória do CEP para o próximo cliente
+                            st.session_state['form_endereco_magico'] = "" 
                             
                             st.cache_data.clear()
                             st.cache_resource.clear()
@@ -2565,39 +2611,38 @@ elif menu_selecionado == "👥 Clientes":
                 else:
                     st.warning("⚠️ Por favor, preencha o Nome e o WhatsApp (obrigatórios).")
 
-        # ==========================================
-        # 🧾 RECIBO DE CONFIRMAÇÃO VISUAL E HISTÓRICO
-        # ==========================================
-        if st.session_state.get('recibo_novo_cliente'):
-            recibo = st.session_state['recibo_novo_cliente']
-            st.success("✅ Cadastro Gravado com Sucesso!")
-            
-            st.info(f"👤 **Cliente:** {recibo['nome']}\n\n📱 **WhatsApp:** {recibo['zap']}\n\n🏷️ **Código Gerado:** {recibo['codigo']}")
-            
-            if st.button("✖️ Fechar Comprovante"):
-                st.session_state['recibo_novo_cliente'] = None
-                st.rerun()
+    # ==========================================
+    # 🧾 RECIBOS E HISTÓRICO (INTACTOS)
+    # ==========================================
+    if st.session_state.get('recibo_novo_cliente'):
+        recibo = st.session_state['recibo_novo_cliente']
+        st.success("✅ Cadastro Gravado com Sucesso!")
+        st.info(f"👤 **Cliente:** {recibo['nome']}\n\n📱 **WhatsApp:** {recibo['zap']}\n\n🏷️ **Código Gerado:** {recibo['codigo']}")
+        
+        if st.button("✖️ Fechar Comprovante"):
+            st.session_state['recibo_novo_cliente'] = None
+            st.rerun()
 
-        st.write("---")
-        with st.expander("🕒 Últimos Cadastros Realizados (Conferência de Segurança)", expanded=False):
-            st.write("Visualize abaixo os últimos clientes adicionados para confirmar que o sistema gravou corretamente.")
-            if not df_clientes_full.empty:
-                df_historico_cli = df_clientes_full.copy().iloc[::-1].head(5)
-                colunas_importantes = [df_clientes_full.columns[0], df_clientes_full.columns[1], df_clientes_full.columns[4], df_clientes_full.columns[7]]
-                
-                st.dataframe(
-                    df_historico_cli[colunas_importantes],
-                    column_config={
-                        df_clientes_full.columns[0]: "Código",
-                        df_clientes_full.columns[1]: "Nome",
-                        df_clientes_full.columns[4]: "Data Inclusão",
-                        df_clientes_full.columns[7]: "Status"
-                    },
-                    use_container_width=True,
-                    hide_index=True
-                )
-            else:
-                st.caption("Ainda não há clientes na base para exibir o histórico.")
+    st.write("---")
+    with st.expander("🕒 Últimos Cadastros Realizados (Conferência de Segurança)", expanded=False):
+        st.write("Visualize abaixo os últimos clientes adicionados para confirmar que o sistema gravou corretamente.")
+        if not df_clientes_full.empty:
+            df_historico_cli = df_clientes_full.copy().iloc[::-1].head(5)
+            colunas_importantes = [df_clientes_full.columns[0], df_clientes_full.columns[1], df_clientes_full.columns[4], df_clientes_full.columns[7]]
+            
+            st.dataframe(
+                df_historico_cli[colunas_importantes],
+                column_config={
+                    df_clientes_full.columns[0]: "Código",
+                    df_clientes_full.columns[1]: "Nome",
+                    df_clientes_full.columns[4]: "Data Inclusão",
+                    df_clientes_full.columns[7]: "Status"
+                },
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.caption("Ainda não há clientes na base para exibir o histórico.")
 
     st.divider()
     
