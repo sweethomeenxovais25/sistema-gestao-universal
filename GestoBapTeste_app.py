@@ -18,6 +18,7 @@ from PIL import Image
 import requests
 import time
 import pytz
+import hashlib
 
 # [As suas importações de bibliotecas continuam aqui em cima intactas...]
 
@@ -77,6 +78,10 @@ def limpar_texto(texto):
     if not isinstance(texto, str): return ""
     texto_sem_acento = unicodedata.normalize('NFD', texto).encode('ascii', 'ignore').decode("utf-8")
     return texto_sem_acento.lower().strip()
+
+def gerar_hash_senha(senha):
+    """Transforma a senha em um código criptografado irreversível (SHA-256)"""
+    return hashlib.sha256(str(senha).encode('utf-8')).hexdigest()
 
 # ==========================================
 # 🎨 1.5. IDENTIDADE VISUAL DINÂMICA (O CAMALEÃO)
