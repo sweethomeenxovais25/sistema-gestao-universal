@@ -4506,6 +4506,37 @@ elif menu_selecionado == "⚙️ Painel de Administração":
     # ABA 2: PERSONALIZAÇÃO DA MARCA E CORES INTELIGENTES
     # -----------------------------------------------------
     with tab_marca:
+        # Função Ninja para salvar/atualizar chaves na planilha (se já não estiver declarada)
+        def atualizar_config(chave, valor):
+            aba_conf = planilha_mestre.worksheet("CONFIGURACOES")
+            try:
+                celula = aba_conf.find(chave, in_column=1)
+                aba_conf.update_cell(celula.row, 2, valor)
+            except:
+                aba_conf.append_row([chave, valor])
+
+        # 🏢 PARTE 1: ALTERAÇÃO DO NOME DA EMPRESA
+        st.write("### 🏢 Nome de Exibição do Sistema")
+        with st.form("form_nome_empresa"):
+            c_nome1, c_nome2 = st.columns([3, 1])
+            novo_nome_loja = c_nome1.text_input("Nome da Loja/Empresa", value=NOME_LOJA)
+            
+            # Usamos o st.markdown para empurrar o botão para baixo e alinhar com o campo de texto
+            c_nome2.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+            if c_nome2.form_submit_button("Atualizar Nome 💾", type="primary", use_container_width=True):
+                if novo_nome_loja.strip() != "":
+                    with st.spinner("A atualizar nome no banco de dados..."):
+                        atualizar_config("NOME_LOJA", novo_nome_loja.strip())
+                        st.success("✅ Nome atualizado! O sistema será reiniciado.")
+                        import time
+                        time.sleep(1)
+                        st.cache_data.clear(); st.cache_resource.clear(); st.rerun()
+                else:
+                    st.warning("O nome não pode ficar vazio.")
+                    
+        st.divider()
+
+        # 🎨 PARTE 2: LOGOTIPO E CORES (O código que já criamos continua aqui abaixo)
         st.write("### 🎨 Identidade Visual e Inteligência de Cores")
         st.write("Faça o upload do logótipo. O sistema tentará extrair a cor principal automaticamente para pintar os botões e os menus!")
         
