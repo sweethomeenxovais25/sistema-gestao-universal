@@ -251,12 +251,16 @@ if not st.session_state['autenticado']:
                                 # Procura o utilizador que esteja com o status "Ativo"
                                 user_row = df_cred[(df_cred['USUARIO'] == usuario_input) & (df_cred['STATUS'] == 'Ativo')]
                                 
+                                # PROCURA O USUÁRIO E VERIFICA A SENHA CRIPTOGRAFADA
                                 if not user_row.empty:
-                                    senha_real = str(user_row.iloc[0]['SENHA'])
-                                    if senha_real == senha_input:
+                                    senha_real_banco = str(user_row.iloc[0]['SENHA'])
+                                    senha_digitada_hash = gerar_hash_senha(senha_input)
+                                    
+                                    # O sistema aceita o Hash novo OU a senha antiga (para não te trancar fora agora)
+                                    if senha_real_banco == senha_digitada_hash or senha_real_banco == senha_input:
                                         st.session_state['autenticado'] = True
                                         st.session_state['usuario_logado'] = str(user_row.iloc[0]['NOME'])
-                                        st.session_state['nivel_acesso'] = str(user_row.iloc[0]['NIVEL']) # Guarda se é Admin ou Vendedor
+                                        st.session_state['nivel_acesso'] = str(user_row.iloc[0]['NIVEL'])
                                         st.session_state['precisa_registrar_acesso'] = True
                                         st.rerun()
                                     else:
@@ -387,7 +391,7 @@ with st.sidebar:
                         # Procura a linha do usuário logado na Coluna A (1)
                         celula_eu = aba_cred_senha.find(st.session_state.get('usuario_logado'), in_column=1)
                         # Atualiza a senha na Coluna C (3)
-                        aba_cred_senha.update_cell(celula_eu.row, 3, nova_senha_user.strip())
+                        aba_cred_senha.update_cell(celula_eu.row, 3, gerar_hash_senha(nova_senha_user.strip()))
                         st.success("Senha alterada com sucesso!")
                     except Exception as e:
                         st.error("Erro ao atualizar a senha no cofre.")
@@ -4461,7 +4465,7 @@ elif menu_selecionado == "⚙️ Painel de Administração":
                     if n_nome and n_user and n_senha and n_cargo:
                         with st.spinner("A criar perfis de segurança..."):
                             # Salva os 6 dados na ordem exata da planilha (com o Cargo na coluna F)
-                            aba_cred.append_row([n_nome, n_user, n_senha, n_nivel, "Ativo", n_cargo], value_input_option='USER_ENTERED')
+                            aba_cred.append_row([n_nome, n_user, gerar_hash_senha(n_senha), n_nivel, "Ativo", n_cargo], value_input_option='USER_ENTERED')
                             st.success("Criado com sucesso!"); st.cache_data.clear(); st.rerun()
                     else: st.warning("Preencha todos os campos do formulário.")
 
@@ -4481,7 +4485,7 @@ elif menu_selecionado == "⚙️ Painel de Administração":
                                 with st.spinner("Alterando permissões..."):
                                     celula_user = aba_cred.find(u_alvo, in_column=2)
                                     aba_cred.update_cell(celula_user.row, 5, u_novo_status)
-                                    if u_nova_senha.strip() != "": aba_cred.update_cell(celula_user.row, 3, u_nova_senha)
+                                    if u_nova_senha.strip() != "": aba_cred.update_cell(celula_user.row, 3, gerar_hash_senha(u_nova_senha))
                                     st.success("Atualizado!"); st.cache_data.clear(); st.rerun()
                 else: st.info("Aguardando base de dados.")
 
