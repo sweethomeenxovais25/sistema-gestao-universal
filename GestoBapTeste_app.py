@@ -131,39 +131,7 @@ estilo_dinamico = f"""
 st.markdown(estilo_dinamico, unsafe_allow_html=True)
 
 # ==========================================
-# 🔒 2. FASE DE LOGIN & SEGURANÇA
-# ==========================================
-if not st.session_state['autenticado']:
-    col1, col2, col3 = st.columns([1, 1.5, 1])
-    with col2:
-        # A logo agora é puxada direto da nuvem/link do cliente!
-        try: st.image(LOGO_URL, use_container_width=True)
-        except: st.warning(f"🏢 {NOME_LOJA}")
-        
-        st.markdown(f"<h2 style='text-align: center;'>Gestão | {NOME_LOJA}</h2>", unsafe_allow_html=True)
-
-        with st.form("form_login"):
-            usuario_input = st.text_input("Usuário").strip()
-            senha_input = st.text_input("Senha", type="password").strip()
-            entrar = st.form_submit_button("Entrar no Sistema 🚀", use_container_width=True)
-            
-            if entrar:
-                try:
-                    usuarios_permitidos = st.secrets["usuarios"]
-                    if usuario_input in usuarios_permitidos:
-                        if str(usuarios_permitidos[usuario_input]) == senha_input:
-                            st.session_state['autenticado'] = True
-                            st.session_state['usuario_logado'] = usuario_input
-                            st.session_state['precisa_registrar_acesso'] = True
-                            st.rerun()
-                        else: st.error("❌ Senha incorreta.")
-                    else: st.error("❌ Usuário não encontrado.")
-                except Exception as e:
-                    st.error("Erro ao acessar cofre de senhas. Verifique os Secrets.")
-    st.stop()
-
-# ==========================================
-# 🚀 3. SISTEMA LIBERADO (CONEXÕES E DADOS)
+# 🚀 2. LIGAÇÃO AO BANCO DE DADOS (CÉREBRO)
 # ==========================================
 ESPECIFICACOES = [
     "https://spreadsheets.google.com/feeds", 
@@ -171,48 +139,96 @@ ESPECIFICACOES = [
     "https://www.googleapis.com/auth/drive.file"
 ]
 
-# 👇 A conexão agora usa o ID_PLANILHA que veio dos Secrets!
 @st.cache_resource
 def conectar_google():
     try:
+        from oauth2client.service_account import ServiceAccountCredentials
+        import gspread
         if "gcp_service_account" in st.secrets:
             creds_info = st.secrets["gcp_service_account"]
             creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, ESPECIFICACOES)
             return gspread.authorize(creds).open_by_key(ID_PLANILHA)
         return None
     except Exception as e:
-        st.error(f"Erro de conexão com o banco de dados do cliente: {e}")
+        st.error(f"Erro de ligação com a base de dados do cliente: {e}")
         st.stop()
 
 planilha_mestre = conectar_google()
 
-# 👇 2. DEPOIS: O GATILHO RODA (Agora que a planilha_mestre já existe!)
+# ==========================================
+# 🔒 3. FASE DE LOGIN (AUTENTICAÇÃO INTELIGENTE)
+# ==========================================
+if not st.session_state['autenticado']:
+    col1, col2, col3 = st.columns([1, 1.5, 1])
+    with col2:
+        try: st.image(LOGO_URL, use_container_width=True)
+        except: st.warning(f"🏢 {NOME_LOJA}")
+        
+        st.markdown(f"<h2 style='text-align: center;'>Gestão | {NOME_LOJA}</h2>", unsafe_allow_html=True)
+
+        with st.form("form_login"):
+            usuario_input = st.text_input("Utilizador").strip()
+            senha_input = st.text_input("Palavra-passe", type="password").strip()
+            entrar = st.form_submit_button("Entrar no Sistema 🚀", use_container_width=True)
+            
+            if entrar:
+                if usuario_input and senha_input:
+                    with st.spinner("A verificar credenciais..."):
+                        try:
+                            aba_cred = planilha_mestre.worksheet("CREDENCIAIS")
+                            dados_cred = aba_cred.get_all_values()
+                            
+                            if len(dados_cred) > 1:
+                                import pandas as pd
+                                df_cred = pd.DataFrame(dados_cred[1:], columns=dados_cred[0])
+                                
+                                # Procura o utilizador que esteja com o status "Ativo"
+                                user_row = df_cred[(df_cred['USUARIO'] == usuario_input) & (df_cred['STATUS'] == 'Ativo')]
+                                
+                                if not user_row.empty:
+                                    senha_real = str(user_row.iloc[0]['SENHA'])
+                                    if senha_real == senha_input:
+                                        st.session_state['autenticado'] = True
+                                        st.session_state['usuario_logado'] = str(user_row.iloc[0]['NOME'])
+                                        st.session_state['nivel_acesso'] = str(user_row.iloc[0]['NIVEL']) # Guarda se é Admin ou Vendedor
+                                        st.session_state['precisa_registrar_acesso'] = True
+                                        st.rerun()
+                                    else:
+                                        st.error("❌ Palavra-passe incorreta.")
+                                else:
+                                    st.error("❌ Utilizador não encontrado ou conta bloqueada.")
+                            else:
+                                st.error("⚠️ O Cofre de Credenciais está vazio no sistema.")
+                        except Exception as e:
+                            st.error(f"Erro ao comunicar com o servidor de segurança: {e}")
+                else:
+                    st.warning("Preencha o utilizador e a palavra-passe.")
+    st.stop()
+
 # ====================================================
-# 🤖 GATILHO DE REGISTRO (VERSÃO COM HORÁRIO DE RECIFE)
+# 🤖 GATILHO DE REGISTO DE ACESSO
 # ====================================================
 if st.session_state.get('precisa_registrar_acesso'):
     try:
         aba_usuario = planilha_mestre.worksheet("USUARIO") 
-        
-        # --- CONFIGURAÇÃO DE FUSO HORÁRIO ---
-        fuso_br = pytz.timezone('America/Sao_Paulo') # Recife segue o mesmo de SP/Brasília
+        import pytz
+        from datetime import datetime
+        fuso_br = pytz.timezone('America/Sao_Paulo') 
         agora = datetime.now(fuso_br).strftime("%d/%m/%Y %H:%M:%S")
-        # ------------------------------------
         
-        usuario_logado = st.session_state.get('usuario_logado')
-        celula_nome = aba_usuario.find(usuario_logado)
+        usuario_log = st.session_state.get('usuario_logado')
+        celula_nome = aba_usuario.find(usuario_log)
         
         if celula_nome:
             cabecalhos = aba_usuario.row_values(1)
             if "ULTIMO_ACESSO" in cabecalhos:
                 col_acesso = cabecalhos.index("ULTIMO_ACESSO") + 1
                 aba_usuario.update_cell(celula_nome.row, col_acesso, agora)
-                st.toast(f"Logado como {usuario_logado}. Ponto registrado! 🕒", icon="✅")
+                st.toast(f"Bem-vindo, {usuario_log}. Ponto registado! 🕒", icon="✅")
             
             st.session_state['precisa_registrar_acesso'] = False 
-            
     except Exception as e:
-        print(f"Erro ao registrar: {e}") 
+        print(f"Erro ao registar acesso: {e}") 
         st.session_state['precisa_registrar_acesso'] = False
 
 # ☁️ Função de Upload Rápido para Cloudinary (Nova Engine de Arquivos)
