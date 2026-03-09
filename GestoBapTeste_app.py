@@ -3650,7 +3650,7 @@ elif menu_selecionado == "📢 Gestão de Marketing":
             f_data_agendada = c3.date_input("Para quando precisamos disto? (Prazo/Data do Post)")
             f_status_inicial = c4.selectbox("Status Atual", ["📥 Fila (Aguardando Início)", "✍️ Em Produção"])
             
-            if st.form_submit_button("🚀 Lançar Desafio para a Equipa!", type="primary"):
+            if st.form_submit_button("🚀 Lançar Desafio para a Equipe!", type="primary"):
                 if f_desc:
                     with st.spinner("A registar demanda..."):
                         try:
