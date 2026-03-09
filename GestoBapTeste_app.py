@@ -482,19 +482,29 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
-    with st.expander("🛡️ Backup do Sistema"):
-        st.markdown("<small>Faça o download seguro dos seus dados para o computador.</small>", unsafe_allow_html=True)
+    with st.expander("🛡️ Backup do Sistema (SaaS Safe)"):
+        st.markdown("<small>Extração completa da base de dados em formato CSV.</small>", unsafe_allow_html=True)
         try:
-            if not df_vendas_hist.empty:
-                st.download_button("📥 Baixar Vendas", df_vendas_hist.to_csv(index=False).encode('utf-8'), f"Vendas_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv", use_container_width=True)
-            if not df_full_inv.empty:
-                st.download_button("📥 Baixar Estoque", df_full_inv.to_csv(index=False).encode('utf-8'), f"Estoque_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv", use_container_width=True)
-            if not df_clientes_full.empty:
-                st.download_button("📥 Baixar Clientes", df_clientes_full.to_csv(index=False).encode('utf-8'), f"Clientes_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv", use_container_width=True)
-            if not df_financeiro.empty:
-                st.download_button("📥 Baixar Financeiro", df_financeiro.to_csv(index=False).encode('utf-8'), f"Financeiro_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv", use_container_width=True)
+            abas_backup = {
+                "Vendas": df_vendas_hist,
+                "Inventario": df_full_inv,
+                "Clientes": df_clientes_full,
+                "Financeiro": df_financeiro,
+                "Despesas": df_despesas,
+                "Marketing": df_marketing,
+                "Documentos": df_docs
+            }
+            for nome, df in abas_backup.items():
+                if not df.empty:
+                    st.download_button(
+                        f"📥 Baixar {nome}", 
+                        df.to_csv(index=False).encode('utf-8'), 
+                        f"Backup_{nome}_{datetime.now().strftime('%Y%m%d')}.csv", 
+                        "text/csv", 
+                        use_container_width=True
+                    )
         except Exception as e:
-            st.error("Sincronize a planilha para gerar o backup.")
+            st.error("Sincronize a planilha para habilitar os backups.")
 
 # --- 👤 CONTROLE DE FLUXO DE ACESSO (Visualização) ---
     with st.expander("👤 Controle de Fluxo de Acesso", expanded=False):
