@@ -1138,7 +1138,7 @@ elif menu_selecionado == "💰 Financeiro":
                         Use um tom profissional, acolhedor e termine com uma frase de incentivo. Seja conciso.
                         """
                         
-                        # 3. CHAMADA DIRETA À API DO GOOGLE (URL ATUALIZADA)
+                        # 3. CHAMADA À API COM LOOP DE MODELOS (ESTRATÉGIA DE FAILOVER)
                         import requests
                         
                         if "GOOGLE_API_KEY" not in st.secrets:
@@ -1147,30 +1147,40 @@ elif menu_selecionado == "💰 Financeiro":
                             
                         chave_api = st.secrets["GOOGLE_API_KEY"]
                         
-                        # Mudamos de v1beta para v1 para garantir estabilidade
-                        url_google = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={chave_api}"
-                        
-                        cabecalho = {'Content-Type': 'application/json'}
-                        carga_dados = {
-                            "contents": [{"parts": [{"text": prompt_ceo}]}]
-                        }
-                        
-                        resposta_google = requests.post(url_google, headers=cabecalho, json=carga_dados, timeout=15)
-                        
-                        if resposta_google.status_code == 200:
-                            dados_ia = resposta_google.json()
-                            # Extração do texto da estrutura oficial do Google
-                            texto_gerado = dados_ia['candidates'][0]['content']['parts'][0]['text']
-                            
-                            st.success("✅ O CEO de Bolso analisou os seus dados!")
+                        # Sua lista de prioridades
+                        modelos_para_testar = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-pro"]
+                        sucesso_ia = False
+                        texto_gerado = ""
+
+                        for modelo_nome in modelos_para_testar:
+                            try:
+                                # Tenta a URL com o modelo da vez (usando v1 para estabilidade)
+                                url_google = f"https://generativelanguage.googleapis.com/v1/models/{modelo_nome}:generateContent?key={chave_api}"
+                                
+                                cabecalho = {'Content-Type': 'application/json'}
+                                carga_dados = {
+                                    "contents": [{"parts": [{"text": prompt_ceo}]}]
+                                }
+                                
+                                resposta_google = requests.post(url_google, headers=cabecalho, json=dados_ia, timeout=10)
+                                
+                                if resposta_google.status_code == 200:
+                                    dados_retorno = resposta_google.json()
+                                    texto_gerado = dados_retorno['candidates'][0]['content']['parts'][0]['text']
+                                    sucesso_ia = True
+                                    modelo_vencedor = modelo_nome # Guarda qual funcionou
+                                    break # Sai do loop se funcionar
+                                else:
+                                    # Se der erro (como 404 ou 429), ele apenas pula para o próximo modelo da lista
+                                    continue
+                            except:
+                                continue
+
+                        if sucesso_ia:
+                            st.success(f"✅ O CEO de Bolso ({modelo_vencedor}) analisou os seus dados!")
                             st.info(texto_gerado)
-                        elif resposta_google.status_code == 404:
-                            st.error("⚠️ Erro 404: O modelo 'gemini-1.5-flash' não foi encontrado nesta região ou URL. Vamos tentar o modelo padrão.")
-                            # Tentativa de fallback automático para o modelo pro caso o flash falhe
-                            url_alt = f"https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key={chave_api}"
-                            # ... (poderíamos repetir a lógica aqui, mas vamos focar em ajustar a URL acima primeiro)
                         else:
-                            st.error(f"⚠️ Erro {resposta_google.status_code}: {resposta_google.text}")
+                            st.error("⚠️ Infelizmente nenhum dos modelos de IA respondeu no momento. Verifique sua conexão ou limite de cota da API.")
                         
                     except Exception as e:
                         st.error(f"⚠️ Erro ao comunicar com a IA. Detalhe: {e}")
