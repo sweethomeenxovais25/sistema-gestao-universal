@@ -4495,7 +4495,6 @@ elif menu_selecionado == "⚙️ Painel de Administração":
                 img_nova_logo = st.file_uploader("Selecione a Nova Logo (PNG/JPG)", type=['png', 'jpg', 'jpeg'])
                 
                 if st.form_submit_button("Substituir Logótipo e Extrair Cor 🚀", type="primary"):
-                    if st.form_submit_button("Substituir Logótipo e Extrair Cor 🚀", type="primary"):
                     if img_nova_logo:
                         with st.spinner("A analisar os pixeis da imagem e a gerar paleta inteligente..."):
                             # 1. Inteligência Artificial: Matemática de Cores (UI/UX)
