@@ -1109,23 +1109,7 @@ elif menu_selecionado == "💰 Financeiro":
             c_ia1, c_ia2 = st.columns([3, 1])
             c_ia1.write(f"Olá, **{st.session_state.get('usuario_logado', 'Gestor')}**! Quer que a Inteligência Artificial analise os números da **{NOME_LOJA}** e gere um conselho prático para hoje?")
             
-            if c_ia2.button("🧠 Gerar Análise", type="primary", use_container_width=True):
-                with st.spinner("O CEO de Bolso está a analisar os seus dados..."):
-                    # 1. PREPARAÇÃO DO PROMPT (Igual ao anterior)
-                    total_vendas_qtd = len(df_vendas_hist) if not df_vendas_hist.empty else 0
-                    total_despesas = len(df_despesas) if not df_despesas.empty else 0
-                    
-                    prompt_ceo = f"Aja como um Diretor Financeiro da {NOME_LOJA}. Vendas: {total_vendas_qtd}. Despesas: {total_despesas}. Dê um conselho de gestão curto."
-
-                    # 2. LISTA DE MODELOS REAIS (Em ordem de preferência)
-                    # Nota: Removido 2.5 pois ainda não foi lançado.
-                    modelos_disponiveis = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-pro"]
-                    
-                    sucesso = False
-                    import requests
-                    chave_api = st.secrets["GOOGLE_API_KEY"]
-
-                    for modelo in modelos_disponiveis:
+            for modelo in modelos_disponiveis:
                         try:
                             url_google = f"https://generativelanguage.googleapis.com/v1/models/{modelo}:generateContent?key={chave_api}"
                             payload = {"contents": [{"parts": [{"text": prompt_ceo}]}]}
