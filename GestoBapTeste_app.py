@@ -39,9 +39,17 @@ def verificar_status_odoo(codigo_produto):
         return False, ""
 
 # ==========================================
-# 🧠 0. MOTOR WHITE-LABEL (IDENTIDADE DINÂMICA)
+# 🧠 0. CONFIGURAÇÕES INICIAIS E I.A.
 # ==========================================
-# O sistema puxa os dados do cliente direto do st.secrets!
+
+# 1. LIGANDO O MOTOR DA INTELIGÊNCIA ARTIFICIAL (GEMINI)
+try:
+    import google.generativeai as genai
+    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+except:
+    pass # Caso a chave não esteja configurada, o sistema não quebra e segue a vida
+
+# 2. MOTOR WHITE-LABEL (IDENTIDADE DINÂMICA E BANCO DE DADOS)
 try:
     NOME_LOJA = st.secrets["cliente"]["nome_loja"]
     LOGO_URL = st.secrets["cliente"]["logo_url"]
@@ -50,11 +58,6 @@ try:
     COR_PRIMARIA = st.secrets["tema"]["cor_primaria"]
     COR_SECUNDARIA = st.secrets["tema"]["cor_secundaria"]
     COR_TEXTO = st.secrets["tema"]["cor_texto"]
-try:
-    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-except:
-    pass # Caso a chave não esteja configurada, o sistema não quebra
-    
 except Exception as e:
     st.error("⚠️ Falha ao ler as configurações do Cliente nos Secrets. Verifique o arquivo st.secrets.")
     st.stop()
