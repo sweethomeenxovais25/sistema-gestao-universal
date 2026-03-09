@@ -20,6 +20,7 @@ import time
 import pytz
 import hashlib
 import google.generativeai as genai
+transport="rest"
 
 # [As suas importações de bibliotecas continuam aqui em cima intactas...]
 
@@ -45,9 +46,12 @@ def verificar_status_odoo(codigo_produto):
 # 1. LIGANDO O MOTOR DA INTELIGÊNCIA ARTIFICIAL (GEMINI)
 try:
     import google.generativeai as genai
-    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-except:
-    pass # Caso a chave não esteja configurada, o sistema não quebra e segue a vida
+    import os
+    # Força o uso da API REST para evitar travamentos (looping infinito) no Streamlit Cloud
+    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"], transport="rest")
+except Exception as e:
+    print(f"Aviso de IA: {e}")
+    pass
 
 # 2. MOTOR WHITE-LABEL (IDENTIDADE DINÂMICA E BANCO DE DADOS)
 try:
