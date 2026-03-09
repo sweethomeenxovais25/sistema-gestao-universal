@@ -397,25 +397,29 @@ with st.sidebar:
 
     st.title("🛠️ Painel de Operações")
     
-    # 💡 O ESCUDO DE ACESSO COMPLETO (RBAC)
-    if st.session_state.get('nivel_acesso') == 'Admin':
-        # O Dono da loja vê TUDO
+    # 💡 O ESCUDO DE ACESSO COMPLETO (RBAC EM 3 CAMADAS)
+    nivel_atual = st.session_state.get('nivel_acesso', 'Operacional')
+
+    if nivel_atual == 'Admin' or nivel_atual == 'Admin (Acesso Total)':
+        # CAMADA 1: O Dono da loja vê TUDO
         opcoes_menu = [
             "🛒 Vendas", "💰 Financeiro", "📦 Estoque", "👥 Clientes", 
             "📂 Documentos", "🏭 Compras e Despesas", "📢 Gestão de Marketing", 
             "🏛️ Contabilidade e MEI", "⚙️ Painel de Administração"
         ]
+    elif nivel_atual == 'Gerência (Intermediário)':
+        # CAMADA 2: Gerente (Vê fluxo de caixa e despesas, mas não vê impostos nem painel de TI)
+        opcoes_menu = [
+            "🛒 Vendas", "💰 Financeiro", "📦 Estoque", "👥 Clientes", 
+            "📂 Documentos", "🏭 Compras e Despesas", "📢 Gestão de Marketing"
+        ]
     else:
-        # O Vendedor só vê o lado operacional (Não vê dinheiro, despesas ou impostos)
+        # CAMADA 3: Operacional (Vendedores, Caixas, Estoquistas)
         opcoes_menu = [
             "🛒 Vendas", "📦 Estoque", "👥 Clientes", "📢 Gestão de Marketing"
         ]
         
-    menu_selecionado = st.radio(
-        "Navegação",
-        opcoes_menu, 
-        key="navegacao_principal_sweet"
-    )
+    menu_selecionado = st.radio("Navegação", opcoes_menu, key="navegacao_principal_sweet")
     
     st.divider()
     modo_teste = st.toggle("🔬 Modo de Teste", value=False, key="toggle_teste")
@@ -4411,18 +4415,23 @@ elif menu_selecionado == "⚙️ Painel de Administração":
     tab_equipe, tab_marca = st.tabs(["👥 Gestão de Equipe", "🎨 Personalização (Logo)"])
     
     # -----------------------------------------------------
-    # ABA 1: GESTÃO DE EQUIPE (O que já fizemos ontem)
+    # ABA 1: GESTÃO DE EQUIPE E HIERARQUIA
     # -----------------------------------------------------
     with tab_equipe:
         try:
             aba_cred = planilha_mestre.worksheet("CREDENCIAIS")
             dados_cred = aba_cred.get_all_values()
-            df_cred = pd.DataFrame(dados_cred[1:], columns=dados_cred[0]) if len(dados_cred) > 1 else pd.DataFrame(columns=['NOME', 'USUARIO', 'SENHA', 'NIVEL', 'STATUS'])
+            df_cred = pd.DataFrame(dados_cred[1:], columns=dados_cred[0]) if len(dados_cred) > 1 else pd.DataFrame(columns=['NOME', 'USUARIO', 'SENHA', 'NIVEL', 'STATUS', 'CARGO'])
         except: df_cred = pd.DataFrame()
 
         st.write("### 👥 Utilizadores Atuais")
         if not df_cred.empty:
-            df_view = df_cred[['NOME', 'USUARIO', 'NIVEL', 'STATUS']].copy()
+            # Prepara as colunas para visualização (incluindo o Cargo se existir)
+            colunas_view = ['NOME', 'USUARIO', 'NIVEL', 'STATUS']
+            if 'CARGO' in df_cred.columns:
+                colunas_view.insert(2, 'CARGO') # Insere o Cargo no meio da tabela
+                
+            df_view = df_cred[colunas_view].copy()
             def style_status(val):
                 if val == "Ativo": return 'background-color: #d4edda; color: #155724; font-weight: bold;'
                 if val == "Bloqueado": return 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
@@ -4436,16 +4445,20 @@ elif menu_selecionado == "⚙️ Painel de Administração":
             st.write("#### ➕ Novo Funcionário")
             with st.form("form_add_user", clear_on_submit=True):
                 n_nome = st.text_input("Nome Completo")
+                # NOVO: Campo de texto livre para o cliente colocar a função exata
+                n_cargo = st.text_input("Cargo na Empresa (Ex: Sub-Gerente, Estoquista)", help="Para organização interna da equipe.")
                 n_user = st.text_input("Nome de Utilizador (Login)")
                 n_senha = st.text_input("Palavra-passe Provisória", type="password")
-                n_nivel = st.selectbox("Nível de Acesso", ["Vendedor", "Admin"])
+                # NOVO: Regra do sistema vinculada aos poderes da conta
+                n_nivel = st.selectbox("Perfil de Permissões no Sistema", ["Operacional (Limitado)", "Gerência (Intermediário)", "Admin (Acesso Total)"])
                 
                 if st.form_submit_button("Criar Utilizador 💾", type="primary"):
-                    if n_nome and n_user and n_senha:
-                        with st.spinner("A salvar..."):
-                            aba_cred.append_row([n_nome, n_user, n_senha, n_nivel, "Ativo"], value_input_option='USER_ENTERED')
+                    if n_nome and n_user and n_senha and n_cargo:
+                        with st.spinner("A criar perfis de segurança..."):
+                            # Salva os 6 dados na ordem exata da planilha (com o Cargo na coluna F)
+                            aba_cred.append_row([n_nome, n_user, n_senha, n_nivel, "Ativo", n_cargo], value_input_option='USER_ENTERED')
                             st.success("Criado com sucesso!"); st.cache_data.clear(); st.rerun()
-                    else: st.warning("Preencha tudo.")
+                    else: st.warning("Preencha todos os campos do formulário.")
 
         with col_edit:
             st.write("#### 🔒 Bloquear Acessos")
@@ -4458,14 +4471,14 @@ elif menu_selecionado == "⚙️ Painel de Administração":
                     if st.form_submit_button("Aplicar Políticas 🛡️"):
                         if u_alvo != "---":
                             if u_alvo == st.session_state.get('usuario_logado') and u_novo_status == "Bloqueado":
-                                st.error("Não pode se bloquear.")
+                                st.error("Não pode bloquear a si mesmo.")
                             else:
-                                with st.spinner("Alterando..."):
+                                with st.spinner("Alterando permissões..."):
                                     celula_user = aba_cred.find(u_alvo, in_column=2)
                                     aba_cred.update_cell(celula_user.row, 5, u_novo_status)
                                     if u_nova_senha.strip() != "": aba_cred.update_cell(celula_user.row, 3, u_nova_senha)
                                     st.success("Atualizado!"); st.cache_data.clear(); st.rerun()
-                else: st.info("Aguardando.")
+                else: st.info("Aguardando base de dados.")
 
     # -----------------------------------------------------
     # ABA 2: PERSONALIZAÇÃO DA MARCA E CORES INTELIGENTES
