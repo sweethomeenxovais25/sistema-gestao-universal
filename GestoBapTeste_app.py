@@ -2216,7 +2216,9 @@ elif menu_selecionado == "💰 Financeiro":
     if sel_ficha != "---":
         id_c = sel_ficha.split(" - ")[0]
         nome_c_ficha = " - ".join(sel_ficha.split(" - ")[1:])
-        v_hist = df_vendas_hist[df_vendas_hist['CÓD. CLIENTE'].astype(str) == id_c]
+        
+        # 💡 BLINDAGEM 1: strip() ignora espaços falsos e copy() protege a memória
+        v_hist = df_vendas_hist[df_vendas_hist['CÓD. CLIENTE'].astype(str).str.strip() == str(id_c).strip()].copy()
         
         # Cria uma coluna numérica temporária para facilitar a soma e o filtro
         v_hist['SALDO_NUM'] = v_hist['SALDO DEVEDOR'].apply(limpar_v)
@@ -2255,10 +2257,13 @@ elif menu_selecionado == "💰 Financeiro":
             
             saldo_formatado = f"R$ {saldo_devedor_real:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
             
-            # MENSAGEM 1: COBRANÇA (Design Sweet Home)
+            # 💡 BLINDAGEM 2: SAAS WHITE-LABEL (Adeus Bia e Sweet Home)
+            nome_atendente = st.session_state.get('usuario_logado', 'Atendimento').split(' ')[0]
+
+            # MENSAGEM 1: COBRANÇA (Design Dinâmico)
             msg_cobranca = (
                 f"Olá, *{nome_c_ficha}*! Tudo bem? 🌸\n\n"
-                f"Aqui é do *Setor Financeiro da Sweet Home Enxovais*.\n"
+                f"Aqui é {nome_atendente} do *Setor Financeiro da {NOME_LOJA}*.\n"
                 f"Criamos esse departamento recentemente para melhorar a nossa organização e estarmos ainda mais próximos de você! ✨\n\n"
                 f"Passando para deixar o resumo atualizado da sua ficha conosco:\n\n"
                 f"📑 *SEU HISTÓRICO DE COMPRAS:*\n"
@@ -2269,10 +2274,10 @@ elif menu_selecionado == "💰 Financeiro":
                 f"Qualquer dúvida sobre os itens ou se precisar da nossa chave PIX para regularizar, estou à disposição! 🥰"
             )
 
-            # MENSAGEM 2: LEMBRETE PREVENTIVO (Design Sweet Home)
+            # MENSAGEM 2: LEMBRETE PREVENTIVO (Design Dinâmico)
             msg_lembrete = (
                 f"Olá, *{nome_c_ficha}*! Tudo bem? 🌸\n\n"
-                f"Aqui é do *Setor Financeiro da Sweet Home Enxovais*.\n\n"
+                f"Aqui é {nome_atendente} do *Setor Financeiro da {NOME_LOJA}*.\n\n"
                 f"Passando apenas para te enviar um lembrete super amigável de que você tem itens com vencimento se aproximando. ✨\n\n"
                 f"📑 *RESUMO DA SUA FICHA:*\n"
                 f"━━━━━━━━━━━━━━━━━━━\n"
@@ -2322,8 +2327,9 @@ elif menu_selecionado == "💰 Financeiro":
                             import google.generativeai as genai
                             genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
                             
+                            # 💡 BLINDAGEM 3: IA entende que atua pelo nome da loja do SaaS
                             prompt = f"""
-                            Você atua no Setor Financeiro da 'Sweet Home Enxovais'. 
+                            Você atua no Setor Financeiro da '{NOME_LOJA}'. 
                             Reescreva a mensagem abaixo para deixá-la incrivelmente empática e persuasiva, mas sem perder a educação. 
                             MANTENHA INTACTA a lista de produtos (o histórico com as datas) e o valor final.
                             
@@ -2336,14 +2342,16 @@ elif menu_selecionado == "💰 Financeiro":
                             {msg_base_ia}
                             """
                             
-                            modelos = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-pro"]
+                            # 💡 BLINDAGEM 4: Removemos o modelo fantasma (2.5) para evitar erros
+                            modelos = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-pro"]
                             resultado_ia = None
                             
                             for m in modelos:
                                 try:
                                     modelo_gen = genai.GenerativeModel(m)
                                     resultado_ia = modelo_gen.generate_content(prompt)
-                                    break
+                                    if resultado_ia:
+                                        break
                                 except: continue
                                 
                             if resultado_ia:
