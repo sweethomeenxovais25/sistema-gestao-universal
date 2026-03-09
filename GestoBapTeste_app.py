@@ -102,6 +102,20 @@ def buscar_cep_magico(cep):
             return None
     return None
 
+def buscar_cnpj_magico(cnpj):
+    """Consulta a API pública da ReceitaWS para buscar os dados de uma empresa pelo CNPJ"""
+    cnpj_limpo = str(cnpj).replace(".", "").replace("-", "").replace("/", "").strip()
+    if len(cnpj_limpo) == 14:
+        try:
+            url = f"https://receitaws.com.br/v1/cnpj/{cnpj_limpo}"
+            resposta = requests.get(url, timeout=5)
+            dados = resposta.json()
+            if dados.get("status") == "OK":
+                return dados
+        except:
+            return None
+    return None
+
 def gerar_hash_senha(senha):
     """Transforma a senha em um código criptografado irreversível (SHA-256)"""
     return hashlib.sha256(str(senha).encode('utf-8')).hexdigest()
@@ -3347,29 +3361,73 @@ elif menu_selecionado == "🏭 Compras e Despesas":
                         st.error(f"Erro ao excluir: {e}")
 
     # ------------------------------------------
-    # ABA 3: CADASTRO E GESTÃO DE FORNECEDORES
+    # ABA 3: CADASTRO E GESTÃO DE FORNECEDORES (COM RECEITAWS)
     # ------------------------------------------
     with t_fornecedores:
+        
+        # ==========================================
+        # 🏢 O BUSCADOR MÁGICO DE CNPJ (RECEITA FEDERAL)
+        # ==========================================
+        if 'form_forn_nome' not in st.session_state:
+            st.session_state['form_forn_nome'] = ""
+        if 'form_forn_obs' not in st.session_state:
+            st.session_state['form_forn_obs'] = ""
+
+        st.write("#### 🔍 Preenchimento Automático por CNPJ")
+        st.info("💡 Digite o CNPJ da fábrica/fornecedor e nós buscamos a Razão Social na Receita Federal!")
+        
+        c_cnpj1, c_cnpj2, c_cnpj3 = st.columns([2, 1, 3])
+        cnpj_digitado = c_cnpj1.text_input("CNPJ (Apenas números)", max_chars=18, key="cnpj_input_api")
+        
+        c_cnpj2.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+        if c_cnpj2.button("🔍 Buscar Empresa", type="secondary"):
+            if cnpj_digitado:
+                with st.spinner("Consultando a base da Receita..."):
+                    dados_empresa = buscar_cnpj_magico(cnpj_digitado)
+                    if dados_empresa:
+                        # Puxa o Nome Fantasia (se tiver), senão puxa a Razão Social
+                        nome_fantasia = dados_empresa.get('fantasia', '')
+                        razao_social = dados_empresa.get('nome', '')
+                        nome_final = nome_fantasia if nome_fantasia else razao_social
+                        
+                        st.session_state['form_forn_nome'] = nome_final
+                        
+                        # Monta uma observação automática rica em detalhes
+                        end = f"{dados_empresa.get('logradouro', '')}, {dados_empresa.get('numero', '')} - {dados_empresa.get('municipio', '')}/{dados_empresa.get('uf', '')}"
+                        st.session_state['form_forn_obs'] = f"CNPJ: {cnpj_digitado} | Razão: {razao_social} | Endereço: {end}"
+                        
+                        st.success(f"✅ Empresa encontrada: {nome_final}")
+                        import time; time.sleep(1); st.rerun()
+                    else:
+                        st.error("❌ CNPJ inválido ou API da Receita indisponível no momento.")
+            else:
+                st.warning("Digite o CNPJ primeiro.")
+
+        st.divider()
+
+        # ==========================================
+        # 🤝 FORMULÁRIO DE CADASTRO
+        # ==========================================
         with st.form("form_novo_forn", clear_on_submit=True):
             st.write("#### 🤝 Cadastrar Novo Fornecedor / Fábrica")
             
             c_f1, c_f2 = st.columns(2)
-            nome_f = c_f1.text_input("Nome / Razão Social")
+            # A MÁGICA: O campo 'value' puxa a memória da Receita Federal
+            nome_f = c_f1.text_input("Nome / Razão Social", value=st.session_state['form_forn_nome'])
             cat_f = c_f2.text_input("Categoria Principal", placeholder="Ex: Roupas, Embalagens, Sistema...")
             
             c_f3, c_f4 = st.columns(2)
             tel_f = c_f3.text_input("WhatsApp de Contato")
             pix_f = c_f4.text_input("Chave PIX")
             
-            obs_f = st.text_input("Observações (Endereço, CNPJ, etc)")
+            obs_f = st.text_input("Observações (Endereço, CNPJ, etc)", value=st.session_state['form_forn_obs'])
             
-            if st.form_submit_button("Criar Fornecedor"):
+            if st.form_submit_button("Criar Fornecedor 💾", type="primary"):
                 if nome_f:
                     try:
                         aba_forn = planilha_mestre.worksheet("FORNECEDORES")
                         dados_forn = aba_forn.get_all_values()
                         
-                        # Gera o código FORN-001, FORN-002 inteligente
                         if len(dados_forn) > 1:
                             ultimo_cod = str(dados_forn[-1][0])
                             try: prox_num = int(ultimo_cod.replace("FORN-", "")) + 1
@@ -3379,17 +3437,19 @@ elif menu_selecionado == "🏭 Compras e Despesas":
                             
                         novo_cod_forn = f"FORN-{prox_num:03d}"
                         
-                        aba_forn.append_row([
-                            novo_cod_forn, nome_f.strip(), cat_f, tel_f, pix_f, obs_f
-                        ], value_input_option='RAW')
+                        aba_forn.append_row([novo_cod_forn, nome_f.strip(), cat_f, tel_f, pix_f, obs_f], value_input_option='RAW')
+                        
+                        # Limpa a memória para a próxima busca
+                        st.session_state['form_forn_nome'] = ""
+                        st.session_state['form_forn_obs'] = ""
                         
                         st.success(f"Fábrica cadastrada! Código: {novo_cod_forn}")
-                        st.cache_data.clear(); st.rerun()
+                        import time; time.sleep(1); st.cache_data.clear(); st.rerun()
                     except Exception as e:
                         st.error(f"Erro ao cadastrar: {e}")
                 else:
                     st.warning("O Nome do Fornecedor é obrigatório.")
-        
+
         st.divider()
         st.write("#### 🗂️ Lista de Fornecedores Ativos")
         
