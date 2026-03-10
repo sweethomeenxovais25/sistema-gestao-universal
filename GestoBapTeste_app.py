@@ -1519,6 +1519,9 @@ elif menu_selecionado == "💰 Financeiro":
                 else:
                     st.info("Aguardando vendas de clientes reais para gerar os gráficos de inteligência.")
 
+        except Exception as e:
+            st.error(f"⚠️ Erro ao processar o painel: {e}")
+
     st.divider()
 
     with st.expander("➕ Lançar Novo Abatimento (Sistema FIFO)", expanded=False):
