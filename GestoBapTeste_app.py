@@ -871,6 +871,7 @@ if menu_selecionado == "🛒 Vendas":
                             recibo_texto += f"✨ *Obrigado pela preferência!*"
 
                             st.success("✅ Venda registrada com sucesso!")
+                            st.balloons() # 🎈
                             st.code(recibo_texto, language="text")
                             
                             # 1. Inteligência de Zap
