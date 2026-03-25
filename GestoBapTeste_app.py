@@ -84,7 +84,7 @@ planilha_mestre = conectar_google()
 # 💡 O truque do sublinhado (_planilha) avisa o Streamlit para não tentar criptografar a conexão do Google
 @st.cache_data(ttl=3600, show_spinner=False)
 def carregar_identidade_visual(_planilha):
-    """Busca as cores no Google Sheets apenas 1 vez por hora (ou até o cache ser limpo)"""
+    """Busca as cores e dados fiscais no Google Sheets"""
     try:
         aba_config = _planilha.worksheet("CONFIGURACOES")
         dados_config = aba_config.get_all_values()
@@ -95,20 +95,19 @@ def carregar_identidade_visual(_planilha):
             dicionario_config.get("LOGO_URL", st.secrets["cliente"]["logo_url"]),
             dicionario_config.get("COR_PRIMARIA", st.secrets["tema"]["cor_primaria"]),
             dicionario_config.get("COR_SECUNDARIA", st.secrets["tema"]["cor_secundaria"]),
-            dicionario_config.get("COR_TEXTO", st.secrets["tema"]["cor_texto"])
+            dicionario_config.get("COR_TEXTO", st.secrets["tema"]["cor_texto"]),
+            dicionario_config.get("CNPJ_LOJA", ""),
+            dicionario_config.get("DATA_ABERTURA", "")
         )
     except Exception:
-        # Se a aba falhar na PRIMEIRA leitura, usa o cofre de segurança
         return (
-            st.secrets["cliente"]["nome_loja"],
-            st.secrets["cliente"]["logo_url"],
-            st.secrets["tema"]["cor_primaria"],
-            st.secrets["tema"]["cor_secundaria"],
-            st.secrets["tema"]["cor_texto"]
+            st.secrets["cliente"]["nome_loja"], st.secrets["cliente"]["logo_url"],
+            st.secrets["tema"]["cor_primaria"], st.secrets["tema"]["cor_secundaria"], st.secrets["tema"]["cor_texto"],
+            "", ""
         )
 
-# Executa a função e desempacota as 5 variáveis de uma vez
-NOME_LOJA, LOGO_URL, COR_PRIMARIA, COR_SECUNDARIA, COR_TEXTO = carregar_identidade_visual(planilha_mestre)
+# Executa a função e desempacota as 7 variáveis
+NOME_LOJA, LOGO_URL, COR_PRIMARIA, COR_SECUNDARIA, COR_TEXTO, CNPJ_LOJA, DATA_ABERTURA = carregar_identidade_visual(planilha_mestre)
 
 # ==========================================
 # 3. CONFIGURAÇÃO ÚNICA DA PÁGINA
@@ -314,11 +313,14 @@ def upload_para_cloudinary(file_bytes, file_name, pasta_destino):
         # Cria as pastas virtuais automaticamente no CDN
         caminho_pasta = f"SweetHome/{pasta_destino}"
         
+        # 💡 A CURA DO BUG DO PDF: Se o nome tiver .pdf, obriga o Cloudinary a aceitar como documento 'raw'
+        tipo_recurso = "raw" if file_name.lower().endswith(".pdf") else "auto"
+        
         resposta = cloudinary.uploader.upload(
             file_bytes,
             folder=caminho_pasta,
             public_id=file_name,
-            resource_type="auto"
+            resource_type=tipo_recurso
         )
         # Retorna o ID único e o link direto
         return resposta.get('public_id'), resposta.get('secure_url')
@@ -4430,66 +4432,73 @@ elif menu_selecionado == "🏛️ Contabilidade e MEI":
         vendas_validas['VALOR_BRUTO'] = vendas_validas.iloc[:, 11].apply(limpar_v) 
         faturamento_atual = vendas_validas['VALOR_BRUTO'].sum()
         
-        limite_mei = 81000.00
+        # 🧠 O CÉREBRO TRIBUTÁRIO (Limites Proporcionais e Regra dos 20%)
+        limite_mei = 81000.00 # Limite padrão para anos completos
+        limite_extrapolacao = 97200.00 # Limite padrão com 20% de tolerância
+        meses_ativos = 12
+
+        if DATA_ABERTURA:
+            try:
+                data_abertura_obj = datetime.strptime(DATA_ABERTURA, "%d/%m/%Y").date()
+                ano_abertura = data_abertura_obj.year
+                mes_abertura = data_abertura_obj.month
+                
+                if ano_selecionado < ano_abertura:
+                    limite_mei = 0.0 # A empresa ainda não existia
+                    limite_extrapolacao = 0.0
+                elif ano_selecionado == ano_abertura:
+                    # Regra da Proporcionalidade: R$ 6.750 por mês
+                    meses_ativos = 12 - mes_abertura + 1
+                    limite_mei = meses_ativos * 6750.00
+                    limite_extrapolacao = limite_mei * 1.20 # + 20% de tolerância
+            except:
+                pass
+
         percentual_atingido = (faturamento_atual / limite_mei) * 100 if limite_mei > 0 else 0
 
-        if percentual_atingido < 70:
-            cor_termo = "#28a745"; status_termo = "🟢 **Zona Segura:** Faturamento dentro da margem legal."
-        elif percentual_atingido < 90:
-            cor_termo = "#ffa500"; status_termo = "🟡 **Atenção:** Aproximando-se do limite do MEI. Monitore de perto."
+        # 🇧🇷 Formatadores BR
+        fat_br = f"R$ {faturamento_atual:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        lim_br = f"R$ {limite_mei:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        ext_br = f"R$ {limite_extrapolacao:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+        # 🚥 ANÁLISE DE RISCO FISCAL (COM DESIGN HTML ENTERPRISE)
+        if limite_mei == 0:
+            cor_termo = "#a0a0a0"; icone = "⚪"; titulo_status = "Inativo"; texto_status = "A empresa não estava aberta neste ano fiscal."
+            percentual_atingido = 0
+        elif faturamento_atual <= limite_mei * 0.80:
+            cor_termo = "#28a745"; icone = "🟢"; titulo_status = "Zona Segura"; texto_status = "Faturamento excelente e dentro da margem legal do MEI."
+        elif faturamento_atual <= limite_mei:
+            cor_termo = "#ffa500"; icone = "🟡"; titulo_status = "Alerta Amarelo"; texto_status = "Aproximando-se do teto legal do MEI. Monitore de perto."
+        elif faturamento_atual <= limite_extrapolacao:
+            cor_termo = "#fd7e14"; icone = "🟠"; titulo_status = "Estouro Tolerável (Até 20%)"; texto_status = f"Faturou <b>{fat_br}</b>. Passou do teto de <b>{lim_br}</b>, mas abaixo dos 20%. Será desenquadrada no próximo ano."
         else:
-            cor_termo = "#ff4b4b"; status_termo = "🔴 **Risco de Desenquadramento:** Limite estourando! Fale com um contador."
+            cor_termo = "#ff4b4b"; icone = "🔴"; titulo_status = "ESTOURO CRÍTICO (> 20%)"; texto_status = f"Faturou <b>{fat_br}</b>. Ultrapassou a tolerância de <b>{ext_br}</b>! Desenquadramento RETROATIVO. Contate um contador JÁ!"
 
         c_termo1, c_termo2, c_termo3 = st.columns([1, 1, 1])
         c_termo1.metric(f"Faturado em {ano_selecionado}", f"R$ {faturamento_atual:,.2f}")
-        c_termo2.metric("Teto Máximo MEI", f"R$ {limite_mei:,.2f}")
-        c_termo3.metric("Margem Restante", f"R$ {limite_mei - faturamento_atual:,.2f}")
+        c_termo2.metric("Teto Proporcional" if meses_ativos < 12 else "Teto Máximo MEI", f"R$ {limite_mei:,.2f}", help=f"Calculado com base em {meses_ativos} meses de atividade.")
+        
+        if faturamento_atual <= limite_mei:
+            c_termo3.metric("Margem Restante", f"R$ {limite_mei - faturamento_atual:,.2f}")
+        else:
+            c_termo3.metric("Valor Excedido", f"R$ {faturamento_atual - limite_mei:,.2f}", delta="Cuidado!", delta_color="inverse")
 
         progresso_visual = min(percentual_atingido / 100, 1.0)
-        st.markdown(
-            f"""
-            <div style="width: 100%; background-color: #f0f2f6; border-radius: 10px; height: 15px;">
-                <div style="width: {progresso_visual*100}%; background-color: {cor_termo}; height: 15px; border-radius: 10px; transition: width 0.5s ease-in-out;">
-                </div>
+        layout_termometro = f"""
+        <div style="width: 100%; background-color: #e9ecef; border-radius: 8px; height: 12px; margin-bottom: 8px;">
+            <div style="width: {progresso_visual*100}%; background-color: {cor_termo}; height: 12px; border-radius: 8px; transition: width 0.5s ease-in-out;">
             </div>
-            <div style="margin-top: 5px; font-weight: bold; color: {cor_termo};">{percentual_atingido:.1f}% do teto atingido no ano.</div>
-            """, 
-            unsafe_allow_html=True
-        )
-        st.write(status_termo)
+        </div>
+        <div style="font-weight: bold; color: {cor_termo}; text-align: right; font-size: 13px; margin-bottom: 15px;">
+            {percentual_atingido:.1f}% do teto atingido
+        </div>
+        <div style="padding: 15px; border-left: 5px solid {cor_termo}; background-color: #f8f9fa; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+            <strong style="color: {cor_termo}; font-size: 16px;">{icone} {titulo_status}</strong><br>
+            <span style="color: #495057; font-size: 14px;">{texto_status}</span>
+        </div>
+        """
+        st.markdown(layout_termometro, unsafe_allow_html=True)
         
-        # 📝 DECLARAÇÃO ANUAL (DASN-SIMEI)
-        st.write("")
-        with st.expander(f"📝 Gerar e Comprovar Declaração Anual (DASN-SIMEI referente a {ano_declaracao})", expanded=False):
-            st.info(f"O Governo exige que você declare até 31 de maio de {ano_selecionado} tudo o que foi faturado em **{ano_declaracao}**.")
-            
-            vendas_ano_anterior = df_termometro[df_termometro['DATA_DT'].dt.year == ano_declaracao].copy()
-            vendas_ano_anterior['VALOR_BRUTO'] = vendas_ano_anterior.iloc[:, 11].apply(limpar_v)
-            faturamento_passado = vendas_ano_anterior['VALOR_BRUTO'].sum()
-            
-            c_dasn1, c_dasn2 = st.columns([1, 1.5])
-            with c_dasn1:
-                st.markdown(f"##### Valor Exato para declarar:\n### **R$ {faturamento_passado:,.2f}**")
-                st.link_button("🌐 Acessar Portal da Receita Federal", "https://www8.receita.fazenda.gov.br/SimplesNacional/Aplicacoes/ATSPO/dasnsimei.app/Default.aspx", type="primary")
-            
-            with c_dasn2:
-                st.markdown("##### 🔒 Anexar Comprovante de Entrega")
-                with st.form("form_dasn", clear_on_submit=True):
-                    dasn_arquivo = st.file_uploader("Recibo DASN (PDF/Foto)", type=['pdf', 'png', 'jpg'])
-                    if st.form_submit_button("Salvar Recibo DASN", type="secondary"):
-                        if dasn_arquivo:
-                            with st.spinner("Salvando..."):
-                                nome_doc = f"DASN_SIMEI_{ano_declaracao}_entregue_em_{ano_selecionado}"
-                                id_cloud, link_cloud = upload_para_cloudinary(dasn_arquivo.getvalue(), nome_doc, "Contabilidade")
-                                if link_cloud:
-                                    try:
-                                        data_agora = datetime.now(pytz.timezone('America/Sao_Paulo')).strftime("%d/%m/%Y")
-                                        # Formato Novo: TIPO | COMP | VENC | V_BASE | V_PAGO | PREJ | ATRASO | STATUS | DATA | LINK
-                                        aba_contabilidade.append_row(["DASN (Declaração Anual)", f"Ano-Calendário {ano_declaracao}", "31/05", 0.00, 0.00, 0.00, 0, "ENTREGUE", data_agora, link_cloud], value_input_option='USER_ENTERED')
-                                        st.success(f"✅ Declaração salva com sucesso!"); st.cache_data.clear(); st.rerun()
-                                    except Exception as e: st.error(f"Erro: {e}")
-                        else:
-                            st.warning("Anexe o arquivo primeiro.")
     else:
         st.info("Aguardando registro de vendas para calcular o termômetro.")
 
@@ -4498,11 +4507,10 @@ elif menu_selecionado == "🏛️ Contabilidade e MEI":
     # ==========================================
     st.divider()
     st.write(f"### 📊 Raio-X de Formalização ({ano_selecionado})")
-    st.caption("Acompanhe o seu faturamento não-oficial (Pessoa Física) lado a lado com o oficial (MEI) para ter a visão global do lucro do seu negócio.")
+    st.caption("Acompanhe o seu faturamento não-oficial (Pessoa Física) lado a lado com o oficial (MEI).")
 
     if DATA_ABERTURA:
         if not df_vendas_hist.empty:
-            # Puxa todas as vendas do ano selecionado (sem o filtro de corte do CNPJ)
             vendas_totais_ano = df_termometro[
                 (df_termometro['DATA_DT'].dt.year == ano_selecionado) &
                 (~df_termometro['CÓD. CLIENTE'].str.upper().str.contains("TOTAIS", na=False)) &
@@ -4512,7 +4520,6 @@ elif menu_selecionado == "🏛️ Contabilidade e MEI":
             if not vendas_totais_ano.empty:
                 vendas_totais_ano['VALOR_BRUTO'] = vendas_totais_ano.iloc[:, 11].apply(limpar_v)
                 
-                # O Divisor de Águas (Matemática Temporal)
                 vendas_pf = vendas_totais_ano[vendas_totais_ano['DATA_DT'] < data_corte_cnpj]
                 vendas_pj = vendas_totais_ano[vendas_totais_ano['DATA_DT'] >= data_corte_cnpj]
                 
@@ -4521,21 +4528,21 @@ elif menu_selecionado == "🏛️ Contabilidade e MEI":
                 total_geral = total_pf + total_pj
                 
                 c_pf, c_pj, c_tg = st.columns(3)
-                c_pf.metric("👤 Faturamento Pessoa Física", f"R$ {total_pf:,.2f}", help="Vendas realizadas ANTES da data de abertura do CNPJ. Não entram na declaração do MEI.")
-                c_pj.metric("🏢 Faturamento Oficial (MEI)", f"R$ {total_pj:,.2f}", help="Vendas oficiais que contam para o limite da Receita Federal.")
-                c_tg.metric("💰 Faturamento Global Real", f"R$ {total_geral:,.2f}", delta="Visão 360º", help="A soma de tudo o que a loja vendeu no ano, independente do CNPJ.")
+                c_pf.metric("👤 Faturamento Pessoa Física", f"R$ {total_pf:,.2f}")
+                c_pj.metric("🏢 Faturamento Oficial (MEI)", f"R$ {total_pj:,.2f}")
+                c_tg.metric("💰 Faturamento Global Real", f"R$ {total_geral:,.2f}", delta="Visão 360º")
                 
                 if total_pf > 0 and total_pj > 0:
                     percentual_pj = (total_pj / total_geral) * 100
-                    st.info(f"💡 **Análise Estratégica:** Neste ano, **{percentual_pj:.1f}%** do seu faturamento foi oficializado. Lembre-se: O dinheiro da Pessoa Física (R$ {total_pf:,.2f}) também é seu caixa real, apenas não consome o limite da sua declaração do DASN!")
+                    st.info(f"💡 **Estratégia:** {percentual_pj:.1f}% do seu faturamento foi oficializado.")
                 elif total_pf > 0 and total_pj == 0:
-                    st.warning("⚠️ Todas as vendas deste ano ocorreram antes da abertura do CNPJ. Nenhuma venda oficializada.")
+                    st.warning("⚠️ Todas as vendas ocorreram antes da abertura do CNPJ.")
                 elif total_pf == 0 and total_pj > 0:
-                    st.success("✅ 100% do seu faturamento neste ano foi oficializado pelo CNPJ.")
+                    st.success("✅ 100% do seu faturamento foi oficializado pelo CNPJ.")
             else:
                 st.info(f"Nenhuma venda registrada no ano de {ano_selecionado}.")
     else:
-        st.warning("⚠️ Cadastre o CNPJ na aba 'Painel de Administração' para ativar o Raio-X de Formalização.")
+        st.warning("⚠️ Cadastre o CNPJ na aba 'Painel de Administração' para ativar o Raio-X.")
 
     # ==========================================
     # 💸 GESTÃO MENSAL (GUIAS DAS) & RALOS FINANCEIROS
