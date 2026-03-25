@@ -4494,6 +4494,50 @@ elif menu_selecionado == "🏛️ Contabilidade e MEI":
         st.info("Aguardando registro de vendas para calcular o termômetro.")
 
     # ==========================================
+    # 📊 RAIO-X DE TRANSIÇÃO (PF vs PJ) - FATURAMENTO GLOBAL
+    # ==========================================
+    st.divider()
+    st.write(f"### 📊 Raio-X de Formalização ({ano_selecionado})")
+    st.caption("Acompanhe o seu faturamento não-oficial (Pessoa Física) lado a lado com o oficial (MEI) para ter a visão global do lucro do seu negócio.")
+
+    if DATA_ABERTURA:
+        if not df_vendas_hist.empty:
+            # Puxa todas as vendas do ano selecionado (sem o filtro de corte do CNPJ)
+            vendas_totais_ano = df_termometro[
+                (df_termometro['DATA_DT'].dt.year == ano_selecionado) &
+                (~df_termometro['CÓD. CLIENTE'].str.upper().str.contains("TOTAIS", na=False)) &
+                (df_termometro.iloc[:, 22].astype(str).str.strip().str.lower() != "cancelado")
+            ].copy()
+
+            if not vendas_totais_ano.empty:
+                vendas_totais_ano['VALOR_BRUTO'] = vendas_totais_ano.iloc[:, 11].apply(limpar_v)
+                
+                # O Divisor de Águas (Matemática Temporal)
+                vendas_pf = vendas_totais_ano[vendas_totais_ano['DATA_DT'] < data_corte_cnpj]
+                vendas_pj = vendas_totais_ano[vendas_totais_ano['DATA_DT'] >= data_corte_cnpj]
+                
+                total_pf = vendas_pf['VALOR_BRUTO'].sum()
+                total_pj = vendas_pj['VALOR_BRUTO'].sum()
+                total_geral = total_pf + total_pj
+                
+                c_pf, c_pj, c_tg = st.columns(3)
+                c_pf.metric("👤 Faturamento Pessoa Física", f"R$ {total_pf:,.2f}", help="Vendas realizadas ANTES da data de abertura do CNPJ. Não entram na declaração do MEI.")
+                c_pj.metric("🏢 Faturamento Oficial (MEI)", f"R$ {total_pj:,.2f}", help="Vendas oficiais que contam para o limite da Receita Federal.")
+                c_tg.metric("💰 Faturamento Global Real", f"R$ {total_geral:,.2f}", delta="Visão 360º", help="A soma de tudo o que a loja vendeu no ano, independente do CNPJ.")
+                
+                if total_pf > 0 and total_pj > 0:
+                    percentual_pj = (total_pj / total_geral) * 100
+                    st.info(f"💡 **Análise Estratégica:** Neste ano, **{percentual_pj:.1f}%** do seu faturamento foi oficializado. Lembre-se: O dinheiro da Pessoa Física (R$ {total_pf:,.2f}) também é seu caixa real, apenas não consome o limite da sua declaração do DASN!")
+                elif total_pf > 0 and total_pj == 0:
+                    st.warning("⚠️ Todas as vendas deste ano ocorreram antes da abertura do CNPJ. Nenhuma venda oficializada.")
+                elif total_pf == 0 and total_pj > 0:
+                    st.success("✅ 100% do seu faturamento neste ano foi oficializado pelo CNPJ.")
+            else:
+                st.info(f"Nenhuma venda registrada no ano de {ano_selecionado}.")
+    else:
+        st.warning("⚠️ Cadastre o CNPJ na aba 'Painel de Administração' para ativar o Raio-X de Formalização.")
+
+    # ==========================================
     # 💸 GESTÃO MENSAL (GUIAS DAS) & RALOS FINANCEIROS
     # ==========================================
     st.divider()
@@ -4870,59 +4914,114 @@ elif menu_selecionado == "🏛️ Contabilidade e MEI":
             st.info("Nenhum lançamento contábil registrado ainda.")
 
     # ==========================================
-    # 🤖 ASSISTENTE FISCAL MEI (CHATBOT GOV.BR)
+    # 🤖 CONTADOR DIGITAL E ESTRATEGISTA FISCAL (IA 4.0 - ESTATÍSTICA APLICADA)
     # ==========================================
     st.divider()
     
-    if 'resposta_mei_ia' not in st.session_state:
-        st.session_state['resposta_mei_ia'] = ""
+    if "contador_mensagens" not in st.session_state:
+        st.session_state["contador_mensagens"] = [
+            {"role": "assistant", "content": f"Olá! Sou o seu **Contador Digital Avançado**. Utilizo **estatística aplicada e projeções de cenário** cruzadas com a legislação tributária vigente (MEI, Simples Nacional, Trabalhista).\n\nComo posso projetar o crescimento da **{NOME_LOJA}** hoje?"}
+        ]
 
-    with st.expander("🤖 Assistente Fiscal do MEI (Tire suas dúvidas legais)", expanded=False):
-        st.markdown("Tem dúvidas sobre licença-maternidade, limite de compras, INSS, juros de atraso ou contratação de funcionário? **Pergunte ao nosso especialista treinado com as regras do portal Gov.br.**")
+    with st.expander("🤖 Consultoria Contábil Digital (Tire dúvidas e planeje o seu crescimento)", expanded=False):
         
-        pergunta_mei = st.text_area("O que você precisa saber sobre o MEI?", placeholder="Ex: Qual o juros se eu atrasar a guia DAS? Posso ter filial?")
+        caixa_chat_fiscal = st.container(height=500, border=False)
         
-        if st.button("Consultar Legislação 🔎"):
-            if pergunta_mei:
-                with st.spinner("Consultando base de dados do Simples Nacional..."):
+        with caixa_chat_fiscal:
+            for msg in st.session_state["contador_mensagens"]:
+                # Usa os avatares nativos do Streamlit para manter as tabelas Markdown intactas
+                with st.chat_message(msg["role"], avatar="👨‍💼" if msg["role"] == "assistant" else "👤"):
+                    st.markdown(msg["content"], unsafe_allow_html=True)
+        
+        if pergunta_fiscal := st.chat_input("Ex: Faça uma projeção estatística se eu estourar o MEI em 30%..."):
+            st.session_state["contador_mensagens"].append({"role": "user", "content": pergunta_fiscal})
+            
+            with caixa_chat_fiscal:
+                with st.chat_message("user", avatar="👤"):
+                    st.markdown(pergunta_fiscal)
+
+            with caixa_chat_fiscal:
+                with st.chat_message("assistant", avatar="👨‍💼"):
+                    resposta_placeholder = st.empty()
+                    resposta_placeholder.markdown("⏳ *A processar modelos estatísticos e legislação...*")
+                    
                     try:
                         import google.generativeai as genai
+                        import urllib.parse
                         genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
                         
-                        prompt_fiscal = f"""
-                        Você é um Consultor Fiscal Sênior especialista em MEI (Microempreendedor Individual) no Brasil, treinado com os dados oficiais do portal Gov.br (PGMEI) e Sebrae.
-                        A usuária Bia, dona da loja de enxovais Sweet Home, está te fazendo a seguinte pergunta:
+                        prompt_contador = f"""
+                        Você é o Contador Digital Sênior e Cientista de Dados da empresa '{NOME_LOJA}'.
                         
-                        "{pergunta_mei}"
-                        
-                        REGRAS PARA A RESPOSTA:
-                        1. Seja direto, didático e empático. Evite juridiquês complicado.
-                        2. Baseie sua resposta APENAS na lei vigente do MEI no Brasil.
-                        3. Se perguntarem sobre multas de atraso do DAS, informe EXATAMENTE a regra: Multa de 0,33% ao dia (limitada a 20%) + Juros da taxa Selic + 1% no mês do pagamento.
-                        4. Se perguntarem sobre compras, o limite é de 80% da receita bruta.
-                        5. Formate a resposta usando Markdown (negritos e tópicos) para fácil leitura.
+                        DIRETRIZES DE INTELIGÊNCIA E FORMATO:
+                        1. ESTATÍSTICA APLICADA: Não dê respostas genéricas. Crie cenários matemáticos (Cenário A vs Cenário B), use projeções de probabilidade, impacto em fluxo de caixa e análise de risco (%). 
+                        2. VARIÁVEIS DINÂMICAS: Seja inteligente para deduzir variáveis. Se a usuária omitir dados numéricos, assuma estimativas lógicas do varejo brasileiro e demonstre a matemática de forma clara.
+                        3. USO DE TABELAS: Sempre que houver comparativo financeiro ou de impostos, USE OBRIGATORIAMENTE Tabelas Markdown formatadas de forma impecável.
+                        4. ESTRUTURA VISUAL: Use Emojis para guiar a leitura. Crie tópicos claros: 📊 Diagnóstico | 📈 Projeção Estatística | ⚖️ Base Legal | 🚀 Decisão Recomendada.
+                        5. MANTENHA-SE ESTRITAMENTE DENTRO DA LEI (LC 123/2006, etc), mas explique como um estrategista financeiro de alto nível.
                         """
                         
+                        # Transforma o histórico do Streamlit no formato nativo do Gemini
+                        historico_gemini = []
+                        for m in st.session_state["contador_mensagens"][-5:]:
+                            role = "model" if m["role"] == "assistant" else "user"
+                            historico_gemini.append({"role": role, "parts": [m["content"]]})
+                            
+                        # Remove a pergunta atual do array histórico
+                        pergunta_atual = historico_gemini.pop()['parts'][0]
+
                         modelos = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-pro"]
+                        sucesso_ia = False
+                        texto_final = ""
+                        
                         for m in modelos:
                             try:
-                                modelo = genai.GenerativeModel(m)
-                                resposta = modelo.generate_content(prompt_fiscal)
-                                if resposta:
-                                    st.session_state['resposta_mei_ia'] = resposta.text
+                                modelo = genai.GenerativeModel(m, system_instruction=prompt_contador)
+                                chat = modelo.start_chat(history=historico_gemini)
+                                resposta = chat.send_message(pergunta_atual)
+                                
+                                if resposta and resposta.text:
+                                    # 🛡️ A SOLUÇÃO DEFINITIVA DO BUG VERDE (Matemática Streamlit)
+                                    # Substitui o cifrão literal pela entidade HTML que o navegador lê, mas o Streamlit ignora!
+                                    texto_final = resposta.text.replace("$", "&#36;")
+                                    
+                                    resposta_placeholder.markdown(texto_final, unsafe_allow_html=True)
+                                    st.session_state["contador_mensagens"].append({"role": "assistant", "content": texto_final})
+                                    sucesso_ia = True
                                     break
-                            except: continue
+                            except Exception as e:
+                                continue
+                                
+                        if not sucesso_ia:
+                            resposta_placeholder.error("⚠️ Ocorreu uma instabilidade na consulta à legislação. Tente novamente.")
+                        
+                        # 📲 BOTÕES DE EXPORTAÇÃO (WHATSAPP E DOCUMENTO OFICIAL)
+                        if sucesso_ia and texto_final:
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            col_b1, col_b2 = st.columns(2)
+                            
+                            # Reverte o código HTML para o símbolo original apenas na exportação
+                            texto_limpo_exportacao = texto_final.replace("&#36;", "$")
+                            
+                            # 1. Exportação para WhatsApp
+                            msg_zap = urllib.parse.quote(f"🏢 *Parecer Contábil Estratégico - {NOME_LOJA}*\n\n{texto_limpo_exportacao}")
+                            col_b1.link_button("📲 Enviar Parecer por WhatsApp", f"https://wa.me/?text={msg_zap}", use_container_width=True)
+                            
+                            # 2. Exportação para Documento (TXT que abre em qualquer lugar)
+                            cabecalho_doc = f"RELATÓRIO DE INTELIGÊNCIA FISCAL E ESTATÍSTICA\nSistema Baply | {NOME_LOJA}\nData: {datetime.now().strftime('%d/%m/%Y %H:%M')}\n{'='*50}\n\n"
+                            doc_completo = cabecalho_doc + texto_limpo_exportacao.replace("**", "") # Remove asteriscos do markdown para o bloco de notas
+                            
+                            col_b2.download_button(
+                                label="📄 Descarregar Relatório Oficial",
+                                data=doc_completo,
+                                file_name=f"Parecer_Contabil_{datetime.now().strftime('%Y%m%d')}.txt",
+                                mime="text/plain",
+                                use_container_width=True,
+                                type="secondary"
+                            )
+
                     except Exception as e:
-                        st.error(f"Erro na IA: {e}")
-            else:
-                st.warning("Digite uma pergunta antes de consultar.")
-                
-        if st.session_state['resposta_mei_ia']:
-            st.info("💡 **Resposta Oficial do Assistente:**")
-            st.markdown(st.session_state['resposta_mei_ia'])
-            if st.button("Limpar Resposta"):
-                st.session_state['resposta_mei_ia'] = ""
-                st.rerun()
+                        resposta_placeholder.error(f"Erro no sistema fiscal: {e}")
 
 # ==========================================================
 # ⚙️ SEÇÃO 9: PAINEL DE ADMINISTRAÇÃO (CÂMARA SECRETA)
