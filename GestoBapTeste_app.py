@@ -4544,6 +4544,98 @@ elif menu_selecionado == "🏛️ Contabilidade e MEI":
     else:
         st.warning("⚠️ Cadastre o CNPJ na aba 'Painel de Administração' para ativar o Raio-X.")
 
+    # 📝 DECLARAÇÃO ANUAL (DASN-SIMEI)
+        st.write("")
+        with st.expander(f"📝 Gerar e Comprovar Declaração Anual (DASN-SIMEI)", expanded=False):
+            tab_dasn_nova, tab_dasn_hist = st.tabs([f"📝 Simulador e Envio ({ano_declaracao})", "🗂️ Histórico de Entregas"])
+            
+            with tab_dasn_nova:
+                st.info(f"O Governo exige que declare até 31 de maio de {ano_selecionado} tudo o que faturou em **{ano_declaracao}**.")
+                vendas_ano_anterior = df_termometro[df_termometro['DATA_DT'].dt.year == ano_declaracao].copy()
+                vendas_validas_passado = vendas_ano_anterior[
+                    (~vendas_ano_anterior['CÓD. CLIENTE'].str.upper().str.contains("TOTAIS", na=False)) &
+                    (vendas_ano_anterior.iloc[:, 22].astype(str).str.strip().str.lower() != "cancelado") &
+                    (vendas_ano_anterior['DATA_DT'] >= data_corte_cnpj)
+                ].copy()
+                vendas_validas_passado['VALOR_BRUTO'] = vendas_validas_passado.iloc[:, 11].apply(limpar_v)
+                faturamento_passado = vendas_validas_passado['VALOR_BRUTO'].sum()
+                
+                limite_passado = 81000.00
+                limite_extra_passado = 97200.00
+                if DATA_ABERTURA:
+                    try:
+                        data_abertura_obj = datetime.strptime(DATA_ABERTURA, "%d/%m/%Y").date()
+                        if ano_declaracao < data_abertura_obj.year: limite_passado = limite_extra_passado = 0.0
+                        elif ano_declaracao == data_abertura_obj.year:
+                            meses_ativos_passado = 12 - data_abertura_obj.month + 1
+                            limite_passado = meses_ativos_passado * 6750.00
+                            limite_extra_passado = limite_passado * 1.20
+                    except: pass
+                
+                excesso = faturamento_passado - limite_passado if faturamento_passado > limite_passado else 0.0
+                fat_passado_br = f"R$ {faturamento_passado:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                lim_passado_br = f"R$ {limite_passado:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                excesso_br = f"R$ {excesso:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                
+                st.markdown("### 📊 Simulador Oficial DASN-SIMEI")
+                cor_alerta = "#ff4b4b" if excesso > 0 else "#28a745"
+                layout_receita = f"""
+                <div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin-bottom: 20px; background-color: #fafafa;">
+                    <h4 style="margin-top: 0; color: #333;">Apuração do Excesso de Receita ({ano_declaracao})</h4>
+                    <table style="width: 100%; border-collapse: collapse; font-family: monospace;">
+                        <tr style="border-bottom: 1px solid #eee;"><td style="padding: 8px 0;">Receita Bruta anual:</td><td style="text-align: right; font-weight: bold;">{fat_passado_br} (+)</td></tr>
+                        <tr style="border-bottom: 1px solid #eee;"><td style="padding: 8px 0;">Limite legal no ano:</td><td style="text-align: right; font-weight: bold;">{lim_passado_br} (-)</td></tr>
+                        <tr><td style="padding: 8px 0;">Valor acima do limite:</td><td style="text-align: right; font-weight: bold; color: {cor_alerta};">{excesso_br} (=)</td></tr>
+                    </table>
+                </div>"""
+                st.markdown(layout_receita, unsafe_allow_html=True)
+                
+                if excesso > 0: st.error("🚨 A receita bruta ultrapassou o limite.")
+                else: st.success("✅ Tudo OK! Faturou dentro do limite.")
+                
+                st.write("#### 📑 Conferência de Guias Pagas")
+                if not df_cont.empty:
+                    df_cont['TIPO_LIMPO'] = df_cont['TIPO_GUIA'].astype(str).str.strip()
+                    df_cont['COMP_LIMPA'] = df_cont['COMPETENCIA'].astype(str).str.strip()
+                    guias_passado = df_cont[(df_cont['TIPO_LIMPO'] == "DAS MEI (Mensal)") & (df_cont['COMP_LIMPA'].str.contains(str(ano_declaracao), na=False)) & (df_cont['STATUS'].astype(str).str.strip().str.upper() == "PAGO")].copy()
+                    if not guias_passado.empty:
+                        st.dataframe(guias_passado[['COMPETENCIA', 'DATA_PAGAMENTO', 'VALOR_PAGO', 'PREJUIZO_JUROS']], use_container_width=True, hide_index=True)
+                    else: st.info("Nenhuma guia do ano anterior registada como paga.")
+                
+                st.divider()
+                c_dasn1, c_dasn2 = st.columns([1, 1])
+                with c_dasn1:
+                    st.write("**Pronto para declarar?**")
+                    st.link_button("🌐 Acessar Portal da Receita Federal", "https://www8.receita.fazenda.gov.br/SimplesNacional/Aplicacoes/ATSPO/dasnsimei.app/Default.aspx", type="primary", use_container_width=True)
+                with c_dasn2:
+                    with st.form("form_dasn", clear_on_submit=True):
+                        st.markdown("**🔒 Anexar Comprovante Final**")
+                        dasn_arquivo = st.file_uploader("Recibo DASN (PDF)", type=['pdf', 'png', 'jpg'])
+                        if st.form_submit_button("Guardar Recibo", type="secondary", use_container_width=True):
+                            if dasn_arquivo:
+                                with st.spinner("Salvando..."):
+                                    import os
+                                    ext_dasn = os.path.splitext(dasn_arquivo.name)[1].lower()
+                                    nome_doc = f"DASN_SIMEI_{ano_declaracao}_entregue_em_{ano_selecionado}{ext_dasn}"
+                                    id_cloud, link_cloud = upload_para_cloudinary(dasn_arquivo.getvalue(), nome_doc, "Contabilidade")
+                                    if link_cloud:
+                                        data_agora = datetime.now(pytz.timezone('America/Sao_Paulo')).strftime("%d/%m/%Y")
+                                        planilha_mestre.worksheet("CONTABILIDADE").append_row(["DASN (Declaração Anual)", f"Ano-Calendário {ano_declaracao}", "31/05", 0.00, 0.00, 0.00, 0, "ENTREGUE", data_agora, link_cloud], value_input_option='USER_ENTERED')
+                                        st.success("✅ Salvo!"); st.cache_data.clear(); st.rerun()
+                            else: st.warning("Anexe o arquivo.")
+
+            with tab_dasn_hist:
+                st.write("#### 🗂️ Arquivo de Declarações Entregues")
+                if not df_cont.empty:
+                    df_dasn = df_cont[df_cont['TIPO_LIMPO'] == "DASN (Declaração Anual)"].copy()
+                    if not df_dasn.empty:
+                        anos_dasn = sorted(list(set([str(c).split(' ')[-1] for c in df_dasn['COMPETENCIA']])), reverse=True)
+                        filtro_dasn = st.selectbox("Filtrar por Ano Referente:", ["Todos os Anos"] + anos_dasn)
+                        if filtro_dasn != "Todos os Anos": df_dasn = df_dasn[df_dasn['COMPETENCIA'].str.contains(filtro_dasn, na=False)]
+                        st.dataframe(df_dasn.iloc[::-1][['DATA_PAGAMENTO', 'COMPETENCIA', 'STATUS', 'LINK_COMPROVANTE']], column_config={"LINK_COMPROVANTE": st.column_config.LinkColumn("Visualizar (PDF)")}, use_container_width=True, hide_index=True)
+                    else: st.info("Nenhuma Declaração guardada.")
+                else: st.info("Banco vazio.")
+
     # ==========================================
     # 💸 GESTÃO MENSAL (GUIAS DAS) & RALOS FINANCEIROS
     # ==========================================
@@ -4927,7 +5019,7 @@ elif menu_selecionado == "🏛️ Contabilidade e MEI":
     
     if "contador_mensagens" not in st.session_state:
         st.session_state["contador_mensagens"] = [
-            {"role": "assistant", "content": f"Olá! Sou o seu **Contador Digital Avançado**. Utilizo **estatística aplicada e projeções de cenário** cruzadas com a legislação tributária vigente (MEI, Simples Nacional, Trabalhista).\n\nComo posso projetar o crescimento da **{NOME_LOJA}** hoje?"}
+            {"role": "assistant", "content": "Olá! Sou o seu **Contador Digital Avançado**. Utilizo **estatística aplicada e projeções de cenário** cruzadas com a legislação tributária vigente (MEI, Simples Nacional, Trabalhista).\n\nComo posso projetar o crescimento da **Sweet Home** hoje?"}
         ]
 
     with st.expander("🤖 Consultoria Contábil Digital (Tire dúvidas e planeje o seu crescimento)", expanded=False):
@@ -4958,7 +5050,7 @@ elif menu_selecionado == "🏛️ Contabilidade e MEI":
                         genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
                         
                         prompt_contador = f"""
-                        Você é o Contador Digital Sênior e Cientista de Dados da empresa '{NOME_LOJA}'.
+                        Você é o Contador Digital Sênior e Cientista de Dados da 'Sweet Home Enxovais'.
                         
                         DIRETRIZES DE INTELIGÊNCIA E FORMATO:
                         1. ESTATÍSTICA APLICADA: Não dê respostas genéricas. Crie cenários matemáticos (Cenário A vs Cenário B), use projeções de probabilidade, impacto em fluxo de caixa e análise de risco (%). 
@@ -5011,17 +5103,17 @@ elif menu_selecionado == "🏛️ Contabilidade e MEI":
                             texto_limpo_exportacao = texto_final.replace("&#36;", "$")
                             
                             # 1. Exportação para WhatsApp
-                            msg_zap = urllib.parse.quote(f"🏢 *Parecer Contábil Estratégico - {NOME_LOJA}*\n\n{texto_limpo_exportacao}")
+                            msg_zap = urllib.parse.quote(f"🏢 *Parecer Contábil Estratégico - Sweet Home*\n\n{texto_limpo_exportacao}")
                             col_b1.link_button("📲 Enviar Parecer por WhatsApp", f"https://wa.me/?text={msg_zap}", use_container_width=True)
                             
                             # 2. Exportação para Documento (TXT que abre em qualquer lugar)
-                            cabecalho_doc = f"RELATÓRIO DE INTELIGÊNCIA FISCAL E ESTATÍSTICA\nSistema Baply | {NOME_LOJA}\nData: {datetime.now().strftime('%d/%m/%Y %H:%M')}\n{'='*50}\n\n"
+                            cabecalho_doc = f"RELATÓRIO DE INTELIGÊNCIA FISCAL E ESTATÍSTICA\nSistema Baply | Sweet Home\nData: {datetime.now().strftime('%d/%m/%Y %H:%M')}\n{'='*50}\n\n"
                             doc_completo = cabecalho_doc + texto_limpo_exportacao.replace("**", "") # Remove asteriscos do markdown para o bloco de notas
                             
                             col_b2.download_button(
-                                label="📄 Descarregar Relatório Oficial",
+                                label="📄 Descarregar Relatório (Documento)",
                                 data=doc_completo,
-                                file_name=f"Parecer_Contabil_{datetime.now().strftime('%Y%m%d')}.txt",
+                                file_name=f"Parecer_Contabil_SweetHome_{datetime.now().strftime('%Y%m%d')}.txt",
                                 mime="text/plain",
                                 use_container_width=True,
                                 type="secondary"
@@ -5117,6 +5209,34 @@ elif menu_selecionado == "⚙️ Painel de Administração":
                 aba_conf.update_cell(celula.row, 2, valor)
             except:
                 aba_conf.append_row([chave, valor])
+
+        # ====================================================================
+        # 🏛️ INÍCIO DO NOVO BLOCO: DADOS FISCAIS E CNPJ
+        # ====================================================================
+        st.write("### 🏛️ Dados Fiscais (Para Cálculo MEI)")
+        with st.form("form_dados_fiscais"):
+            st.info("Digite o CNPJ para o sistema calcular o teto proporcional do seu imposto no ano de abertura.")
+            c_cnpj1, c_cnpj2 = st.columns([2, 1])
+            novo_cnpj = c_cnpj1.text_input("CNPJ da Empresa", value=CNPJ_LOJA, max_chars=18)
+            
+            c_cnpj2.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+            if c_cnpj2.form_submit_button("Sincronizar na Receita 🔎", type="primary", use_container_width=True):
+                if novo_cnpj:
+                    with st.spinner("A consultar a Receita Federal..."):
+                        dados_cnpj = buscar_cnpj_magico(novo_cnpj)
+                        if dados_cnpj:
+                            data_abertura_receita = dados_cnpj.get('abertura', '')
+                            atualizar_config("CNPJ_LOJA", novo_cnpj)
+                            atualizar_config("DATA_ABERTURA", data_abertura_receita)
+                            
+                            st.success(f"✅ Empresa: {dados_cnpj.get('nome', '')} | Abertura: {data_abertura_receita}")
+                            import time; time.sleep(2)
+                            st.cache_data.clear(); st.cache_resource.clear(); st.rerun()
+                        else:
+                            st.error("❌ CNPJ inválido ou sistema da Receita indisponível.")
+                else:
+                    st.warning("Digite o CNPJ.")
+        st.divider()
 
         # 🏢 PARTE 1: ALTERAÇÃO DO NOME DA EMPRESA
         st.write("### 🏢 Nome de Exibição do Sistema")
