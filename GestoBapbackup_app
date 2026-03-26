@@ -85,7 +85,7 @@ planilha_mestre = conectar_google()
 # 💡 O truque do sublinhado (_planilha) avisa o Streamlit para não tentar criptografar a conexão do Google
 @st.cache_data(ttl=3600, show_spinner=False)
 def carregar_identidade_visual(_planilha):
-    """Busca as cores no Google Sheets apenas 1 vez por hora (ou até o cache ser limpo)"""
+    """Busca as cores e dados fiscais no Google Sheets"""
     try:
         aba_config = _planilha.worksheet("CONFIGURACOES")
         dados_config = aba_config.get_all_values()
@@ -96,20 +96,19 @@ def carregar_identidade_visual(_planilha):
             dicionario_config.get("LOGO_URL", st.secrets["cliente"]["logo_url"]),
             dicionario_config.get("COR_PRIMARIA", st.secrets["tema"]["cor_primaria"]),
             dicionario_config.get("COR_SECUNDARIA", st.secrets["tema"]["cor_secundaria"]),
-            dicionario_config.get("COR_TEXTO", st.secrets["tema"]["cor_texto"])
+            dicionario_config.get("COR_TEXTO", st.secrets["tema"]["cor_texto"]),
+            dicionario_config.get("CNPJ_LOJA", ""),
+            dicionario_config.get("DATA_ABERTURA", "")
         )
     except Exception:
-        # Se a aba falhar na PRIMEIRA leitura, usa o cofre de segurança
         return (
-            st.secrets["cliente"]["nome_loja"],
-            st.secrets["cliente"]["logo_url"],
-            st.secrets["tema"]["cor_primaria"],
-            st.secrets["tema"]["cor_secundaria"],
-            st.secrets["tema"]["cor_texto"]
+            st.secrets["cliente"]["nome_loja"], st.secrets["cliente"]["logo_url"],
+            st.secrets["tema"]["cor_primaria"], st.secrets["tema"]["cor_secundaria"], st.secrets["tema"]["cor_texto"],
+            "", ""
         )
 
-# Executa a função e desempacota as 5 variáveis de uma vez
-NOME_LOJA, LOGO_URL, COR_PRIMARIA, COR_SECUNDARIA, COR_TEXTO = carregar_identidade_visual(planilha_mestre)
+# Executa a função e desempacota as 7 variáveis
+NOME_LOJA, LOGO_URL, COR_PRIMARIA, COR_SECUNDARIA, COR_TEXTO, CNPJ_LOJA, DATA_ABERTURA = carregar_identidade_visual(planilha_mestre)
 
 # ==========================================
 # 3. CONFIGURAÇÃO ÚNICA DA PÁGINA
@@ -124,7 +123,11 @@ st.set_page_config(
 if 'autenticado' not in st.session_state: st.session_state['autenticado'] = False
 if 'historico_sessao' not in st.session_state: st.session_state['historico_sessao'] = []
 if 'historico_estoque' not in st.session_state: st.session_state['historico_estoque'] = []
-if 'carrinho' not in st.session_state: st.session_state['carrinho'] = []    
+if 'carrinho' not in st.session_state: st.session_state['carrinho'] = []
+if 'recibo_cont' not in st.session_state: st.session_state['recibo_cont'] = None
+if 'ia_ficha_ativa' not in st.session_state: st.session_state['ia_ficha_ativa'] = False
+if 'relatorio_fixo' not in st.session_state: st.session_state['relatorio_fixo'] = None
+if 'resultado_ia_nota' not in st.session_state: st.session_state['resultado_ia_nota'] = None
     
 # --- AUXILIARES TÉCNICOS ---
 def limpar_v(v):
@@ -315,11 +318,14 @@ def upload_para_cloudinary(file_bytes, file_name, pasta_destino):
         # Cria as pastas virtuais automaticamente no CDN
         caminho_pasta = f"SweetHome/{pasta_destino}"
         
+        # 💡 A CURA DO BUG DO PDF: Se o nome tiver .pdf, obriga o Cloudinary a aceitar como documento 'raw'
+        tipo_recurso = "raw" if file_name.lower().endswith(".pdf") else "auto"
+        
         resposta = cloudinary.uploader.upload(
             file_bytes,
             folder=caminho_pasta,
             public_id=file_name,
-            resource_type="auto"
+            resource_type=tipo_recurso
         )
         # Retorna o ID único e o link direto
         return resposta.get('public_id'), resposta.get('secure_url')
@@ -329,7 +335,7 @@ def upload_para_cloudinary(file_bytes, file_name, pasta_destino):
 
 @st.cache_data(ttl=60)
 def carregar_dados():
-    # 💡 CORREÇÃO 1: Agora ele retorna 15 variáveis certinhas (adicionado mais um pd.DataFrame vazio para df_cred)
+    # 💡 CORREÇÃO 1: Agora ele retorna 15 variáveis certinhas
     if not planilha_mestre: 
         return {}, {}, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), {}, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
     
@@ -3216,7 +3222,7 @@ elif menu_selecionado == "📂 Documentos":
                     return ''
 
                 st.dataframe(
-                    st.session_state.relatorio_fixo.style.applymap(style_status_cores, subset=['Status Site']),
+                    st.session_state.relatorio_fixo.style.map(style_status_cores, subset=['Status Site']),
                     use_container_width=True,
                     hide_index=True
                 )
@@ -4400,6 +4406,14 @@ elif menu_selecionado == "🏛️ Contabilidade e MEI":
     
     ano_declaracao = ano_selecionado - 1 
 
+    # Define a data de corte PF/PJ com base na abertura do CNPJ
+    data_corte_cnpj = pd.to_datetime("1900-01-01")  # Fallback seguro
+    if DATA_ABERTURA:
+        try:
+            data_corte_cnpj = pd.to_datetime(datetime.strptime(DATA_ABERTURA, "%d/%m/%Y").date())
+        except Exception:
+            pass 
+
     # ==========================================
     # 🌡️ TERMÔMETRO DE FATURAMENTO (LEI DO MEI)
     # ==========================================
@@ -4417,82 +4431,203 @@ elif menu_selecionado == "🏛️ Contabilidade e MEI":
 
     if not df_vendas_hist.empty:
         df_termometro = df_vendas_hist.copy()
-        
         col_data_venda = 'DATA DA VENDA' if 'DATA DA VENDA' in df_termometro.columns else df_termometro.columns[1] 
         df_termometro['DATA_DT'] = pd.to_datetime(df_termometro[col_data_venda], format='%d/%m/%Y', errors='coerce')
-        
         vendas_ano_foco = df_termometro[df_termometro['DATA_DT'].dt.year == ano_selecionado]
         
         vendas_validas = vendas_ano_foco[
             (~vendas_ano_foco['CÓD. CLIENTE'].str.upper().str.contains("TOTAIS", na=False)) &
-            (vendas_ano_foco.iloc[:, 22].astype(str).str.strip().str.lower() != "cancelado")
+            (vendas_ano_foco.iloc[:, 22].astype(str).str.strip().str.lower() != "cancelado") &
+            (vendas_ano_foco['DATA_DT'] >= data_corte_cnpj)
         ].copy()
 
         vendas_validas['VALOR_BRUTO'] = vendas_validas.iloc[:, 11].apply(limpar_v) 
         faturamento_atual = vendas_validas['VALOR_BRUTO'].sum()
         
         limite_mei = 81000.00
+        limite_extrapolacao = 97200.00
+        meses_ativos = 12
+
+        if DATA_ABERTURA:
+            try:
+                data_abertura_obj = datetime.strptime(DATA_ABERTURA, "%d/%m/%Y").date()
+                if ano_selecionado < data_abertura_obj.year:
+                    limite_mei = 0.0
+                    limite_extrapolacao = 0.0
+                elif ano_selecionado == data_abertura_obj.year:
+                    meses_ativos = 12 - data_abertura_obj.month + 1
+                    limite_mei = meses_ativos * 6750.00
+                    limite_extrapolacao = limite_mei * 1.20
+            except: pass
+
         percentual_atingido = (faturamento_atual / limite_mei) * 100 if limite_mei > 0 else 0
 
-        if percentual_atingido < 70:
-            cor_termo = "#28a745"; status_termo = "🟢 **Zona Segura:** Faturamento dentro da margem legal."
-        elif percentual_atingido < 90:
-            cor_termo = "#ffa500"; status_termo = "🟡 **Atenção:** Aproximando-se do limite do MEI. Monitore de perto."
+        fat_br = f"R$ {faturamento_atual:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        lim_br = f"R$ {limite_mei:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        ext_br = f"R$ {limite_extrapolacao:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+        if limite_mei == 0:
+            cor_termo = "#a0a0a0"; icone = "⚪"; titulo_status = "Inativo"; texto_status = "A empresa não estava aberta neste ano fiscal."
+        elif faturamento_atual <= limite_mei * 0.80:
+            cor_termo = "#28a745"; icone = "🟢"; titulo_status = "Zona Segura"; texto_status = "Faturamento excelente e dentro da margem legal do MEI."
+        elif faturamento_atual <= limite_mei:
+            cor_termo = "#ffa500"; icone = "🟡"; titulo_status = "Alerta Amarelo"; texto_status = "Aproximando-se do teto legal do MEI. Monitore as vendas de perto."
+        elif faturamento_atual <= limite_extrapolacao:
+            cor_termo = "#fd7e14"; icone = "🟠"; titulo_status = "Estouro Tolerável (Até 20%)"; texto_status = f"Faturou <b>{fat_br}</b>. Passou do teto de <b>{lim_br}</b>, mas ficou abaixo dos 20%. Será desenquadrada no próximo ano."
         else:
-            cor_termo = "#ff4b4b"; status_termo = "🔴 **Risco de Desenquadramento:** Limite estourando! Fale com um contador."
+            cor_termo = "#ff4b4b"; icone = "🔴"; titulo_status = "ESTOURO CRÍTICO (> 20%)"; texto_status = f"Faturou <b>{fat_br}</b>. Ultrapassou a tolerância de <b>{ext_br}</b>! Desenquadramento RETROATIVO. Contate o contador JÁ!"
 
         c_termo1, c_termo2, c_termo3 = st.columns([1, 1, 1])
         c_termo1.metric(f"Faturado em {ano_selecionado}", f"R$ {faturamento_atual:,.2f}")
         c_termo2.metric("Teto Máximo MEI", f"R$ {limite_mei:,.2f}")
-        c_termo3.metric("Margem Restante", f"R$ {limite_mei - faturamento_atual:,.2f}")
+        if faturamento_atual <= limite_mei: c_termo3.metric("Margem Restante", f"R$ {limite_mei - faturamento_atual:,.2f}")
+        else: c_termo3.metric("Valor Excedido", f"R$ {faturamento_atual - limite_mei:,.2f}", delta="Cuidado!", delta_color="inverse")
 
         progresso_visual = min(percentual_atingido / 100, 1.0)
-        st.markdown(
-            f"""
-            <div style="width: 100%; background-color: #f0f2f6; border-radius: 10px; height: 15px;">
-                <div style="width: {progresso_visual*100}%; background-color: {cor_termo}; height: 15px; border-radius: 10px; transition: width 0.5s ease-in-out;">
-                </div>
-            </div>
-            <div style="margin-top: 5px; font-weight: bold; color: {cor_termo};">{percentual_atingido:.1f}% do teto atingido no ano.</div>
-            """, 
-            unsafe_allow_html=True
-        )
-        st.write(status_termo)
+        layout_termometro = f"""
+        <div style="width: 100%; background-color: #f0f2f6; border-radius: 8px; height: 12px; margin-bottom: 8px;">
+            <div style="width: {progresso_visual*100}%; background-color: {cor_termo}; height: 12px; border-radius: 8px; transition: width 0.5s ease-in-out;"></div>
+        </div>
+        <div style="font-weight: bold; color: {cor_termo}; text-align: right; font-size: 13px; margin-bottom: 15px;">{percentual_atingido:.1f}% do teto atingido</div>
+        <div style="padding: 15px; border-left: 5px solid {cor_termo}; background-color: #f8f9fa; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+            <strong style="color: {cor_termo}; font-size: 16px;">{icone} {titulo_status}</strong><br>
+            <span style="color: #495057; font-size: 14px;">{texto_status}</span>
+        </div>
+        """
+        st.markdown(layout_termometro, unsafe_allow_html=True)
         
-        # 📝 DECLARAÇÃO ANUAL (DASN-SIMEI)
-        st.write("")
-        with st.expander(f"📝 Gerar e Comprovar Declaração Anual (DASN-SIMEI referente a {ano_declaracao})", expanded=False):
-            st.info(f"O Governo exige que você declare até 31 de maio de {ano_selecionado} tudo o que foi faturado em **{ano_declaracao}**.")
-            
-            vendas_ano_anterior = df_termometro[df_termometro['DATA_DT'].dt.year == ano_declaracao].copy()
-            vendas_ano_anterior['VALOR_BRUTO'] = vendas_ano_anterior.iloc[:, 11].apply(limpar_v)
-            faturamento_passado = vendas_ano_anterior['VALOR_BRUTO'].sum()
-            
-            c_dasn1, c_dasn2 = st.columns([1, 1.5])
-            with c_dasn1:
-                st.markdown(f"##### Valor Exato para declarar:\n### **R$ {faturamento_passado:,.2f}**")
-                st.link_button("🌐 Acessar Portal da Receita Federal", "https://www8.receita.fazenda.gov.br/SimplesNacional/Aplicacoes/ATSPO/dasnsimei.app/Default.aspx", type="primary")
-            
-            with c_dasn2:
-                st.markdown("##### 🔒 Anexar Comprovante de Entrega")
-                with st.form("form_dasn", clear_on_submit=True):
-                    dasn_arquivo = st.file_uploader("Recibo DASN (PDF/Foto)", type=['pdf', 'png', 'jpg'])
-                    if st.form_submit_button("Salvar Recibo DASN", type="secondary"):
-                        if dasn_arquivo:
-                            with st.spinner("Salvando..."):
-                                nome_doc = f"DASN_SIMEI_{ano_declaracao}_entregue_em_{ano_selecionado}"
-                                id_cloud, link_cloud = upload_para_cloudinary(dasn_arquivo.getvalue(), nome_doc, "Contabilidade")
-                                if link_cloud:
-                                    try:
-                                        data_agora = datetime.now(pytz.timezone('America/Sao_Paulo')).strftime("%d/%m/%Y")
-                                        # Formato Novo: TIPO | COMP | VENC | V_BASE | V_PAGO | PREJ | ATRASO | STATUS | DATA | LINK
-                                        aba_contabilidade.append_row(["DASN (Declaração Anual)", f"Ano-Calendário {ano_declaracao}", "31/05", 0.00, 0.00, 0.00, 0, "ENTREGUE", data_agora, link_cloud], value_input_option='USER_ENTERED')
-                                        st.success(f"✅ Declaração salva com sucesso!"); st.cache_data.clear(); st.rerun()
-                                    except Exception as e: st.error(f"Erro: {e}")
-                        else:
-                            st.warning("Anexe o arquivo primeiro.")
     else:
         st.info("Aguardando registro de vendas para calcular o termômetro.")
+
+    # ==========================================
+    # 📊 RAIO-X DE TRANSIÇÃO (PF vs PJ) - FATURAMENTO GLOBAL
+    # ==========================================
+    st.divider()
+    st.write(f"### 📊 Raio-X de Formalização ({ano_selecionado})")
+    st.caption("Acompanhe o seu faturamento não-oficial (Pessoa Física) lado a lado com o oficial (MEI).")
+
+    if DATA_ABERTURA:
+        if not df_vendas_hist.empty:
+            vendas_totais_ano = df_termometro[
+                (df_termometro['DATA_DT'].dt.year == ano_selecionado) &
+                (~df_termometro['CÓD. CLIENTE'].str.upper().str.contains("TOTAIS", na=False)) &
+                (df_termometro.iloc[:, 22].astype(str).str.strip().str.lower() != "cancelado")
+            ].copy()
+
+            if not vendas_totais_ano.empty:
+                vendas_totais_ano['VALOR_BRUTO'] = vendas_totais_ano.iloc[:, 11].apply(limpar_v)
+                vendas_pf = vendas_totais_ano[vendas_totais_ano['DATA_DT'] < data_corte_cnpj]
+                vendas_pj = vendas_totais_ano[vendas_totais_ano['DATA_DT'] >= data_corte_cnpj]
+                
+                total_pf = vendas_pf['VALOR_BRUTO'].sum()
+                total_pj = vendas_pj['VALOR_BRUTO'].sum()
+                total_geral = total_pf + total_pj
+                
+                c_pf, c_pj, c_tg = st.columns(3)
+                c_pf.metric("👤 Faturamento Pessoa Física", f"R$ {total_pf:,.2f}")
+                c_pj.metric("🏢 Faturamento Oficial (MEI)", f"R$ {total_pj:,.2f}")
+                c_tg.metric("💰 Faturamento Global Real", f"R$ {total_geral:,.2f}", delta="Visão 360º")
+                
+                if total_pf > 0 and total_pj > 0:
+                    st.info(f"💡 **Estratégia:** {(total_pj / total_geral) * 100:.1f}% do seu faturamento foi oficializado.")
+                elif total_pf > 0 and total_pj == 0:
+                    st.warning("⚠️ Todas as vendas ocorreram antes da abertura do CNPJ.")
+                elif total_pf == 0 and total_pj > 0:
+                    st.success("✅ 100% do seu faturamento foi oficializado pelo CNPJ.")
+            else: st.info(f"Nenhuma venda registrada no ano de {ano_selecionado}.")
+    else:
+        st.warning("⚠️ Cadastre o CNPJ na aba 'Painel de Administração' para ativar o Raio-X.")
+
+    # 📝 DECLARAÇÃO ANUAL (DASN-SIMEI)
+    st.write("")
+    with st.expander(f"📝 Gerar e Comprovar Declaração Anual (DASN-SIMEI)", expanded=False):
+        tab_dasn_nova, tab_dasn_hist = st.tabs([f"📝 Simulador e Envio ({ano_declaracao})", "🗂️ Histórico de Entregas"])
+        
+        with tab_dasn_nova:
+            st.info(f"O Governo exige que declare até 31 de maio de {ano_selecionado} tudo o que faturou em **{ano_declaracao}**.")
+            if not df_vendas_hist.empty:
+                vendas_ano_anterior = df_termometro[df_termometro['DATA_DT'].dt.year == ano_declaracao].copy()
+                vendas_validas_passado = vendas_ano_anterior[
+                    (~vendas_ano_anterior['CÓD. CLIENTE'].str.upper().str.contains("TOTAIS", na=False)) &
+                    (vendas_ano_anterior.iloc[:, 22].astype(str).str.strip().str.lower() != "cancelado") &
+                    (vendas_ano_anterior['DATA_DT'] >= data_corte_cnpj)
+                ].copy()
+                vendas_validas_passado['VALOR_BRUTO'] = vendas_validas_passado.iloc[:, 11].apply(limpar_v)
+                faturamento_passado = vendas_validas_passado['VALOR_BRUTO'].sum()
+            else:
+                faturamento_passado = 0.0
+            
+            limite_passado = 81000.00
+            if DATA_ABERTURA:
+                try:
+                    data_ab_obj = datetime.strptime(DATA_ABERTURA, "%d/%m/%Y").date()
+                    if ano_declaracao < data_ab_obj.year: limite_passado = 0.0
+                    elif ano_declaracao == data_ab_obj.year: limite_passado = (12 - data_ab_obj.month + 1) * 6750.00
+                except: pass
+            
+            excesso = faturamento_passado - limite_passado if faturamento_passado > limite_passado else 0.0
+            fat_passado_br = f"R$ {faturamento_passado:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            lim_passado_br = f"R$ {limite_passado:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            excesso_br = f"R$ {excesso:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            
+            st.markdown("### 📊 Simulador Oficial DASN-SIMEI")
+            cor_alerta = "#ff4b4b" if excesso > 0 else "#28a745"
+            layout_receita = f"""
+            <div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin-bottom: 20px; background-color: #fafafa;">
+                <h4 style="margin-top: 0; color: #333;">Apuração do Excesso de Receita ({ano_declaracao})</h4>
+                <table style="width: 100%; border-collapse: collapse; font-family: monospace;">
+                    <tr style="border-bottom: 1px solid #eee;"><td style="padding: 8px 0;">Receita Bruta anual:</td><td style="text-align: right; font-weight: bold;">{fat_passado_br} (+)</td></tr>
+                    <tr style="border-bottom: 1px solid #eee;"><td style="padding: 8px 0;">Limite legal no ano:</td><td style="text-align: right; font-weight: bold;">{lim_passado_br} (-)</td></tr>
+                    <tr><td style="padding: 8px 0;">Valor acima do limite:</td><td style="text-align: right; font-weight: bold; color: {cor_alerta};">{excesso_br} (=)</td></tr>
+                </table>
+            </div>"""
+            st.markdown(layout_receita, unsafe_allow_html=True)
+            
+            if excesso > 0: st.error("🚨 A receita bruta ultrapassou o limite.")
+            else: st.success("✅ Tudo OK! Faturou dentro do limite.")
+            
+            st.write("#### 📑 Conferência de Guias Pagas")
+            if not df_cont.empty:
+                df_cont['TIPO_LIMPO'] = df_cont['TIPO_GUIA'].astype(str).str.strip()
+                df_cont['COMP_LIMPA'] = df_cont['COMPETENCIA'].astype(str).str.strip()
+                guias_passado = df_cont[(df_cont['TIPO_LIMPO'] == "DAS MEI (Mensal)") & (df_cont['COMP_LIMPA'].str.contains(str(ano_declaracao), na=False)) & (df_cont['STATUS'].astype(str).str.strip().str.upper() == "PAGO")].copy()
+                if not guias_passado.empty:
+                    st.dataframe(guias_passado[['COMPETENCIA', 'DATA_PAGAMENTO', 'VALOR_PAGO', 'PREJUIZO_JUROS']], use_container_width=True, hide_index=True)
+                else: st.info("Nenhuma guia do ano anterior registada como paga.")
+            
+            st.divider()
+            c_dasn1, c_dasn2 = st.columns([1, 1])
+            with c_dasn1:
+                st.write("**Pronto para declarar?**")
+                st.link_button("🌐 Acessar Portal da Receita Federal", "https://www8.receita.fazenda.gov.br/SimplesNacional/Aplicacoes/ATSPO/dasnsimei.app/Default.aspx", type="primary", use_container_width=True)
+            with c_dasn2:
+                with st.form("form_dasn", clear_on_submit=True):
+                    st.markdown("**🔒 Anexar Comprovante Final**")
+                    dasn_arquivo = st.file_uploader("Recibo DASN (PDF)", type=['pdf', 'png', 'jpg'])
+                    if st.form_submit_button("Guardar Recibo", type="secondary", use_container_width=True):
+                        if dasn_arquivo:
+                            with st.spinner("Salvando..."):
+                                import os
+                                ext_dasn = os.path.splitext(dasn_arquivo.name)[1].lower()
+                                nome_doc = f"DASN_SIMEI_{ano_declaracao}_entregue_em_{ano_selecionado}{ext_dasn}"
+                                id_cloud, link_cloud = upload_para_cloudinary(dasn_arquivo.getvalue(), nome_doc, "Contabilidade")
+                                if link_cloud:
+                                    data_agora = datetime.now(pytz.timezone('America/Sao_Paulo')).strftime("%d/%m/%Y")
+                                    planilha_mestre.worksheet("CONTABILIDADE").append_row(["DASN (Declaração Anual)", f"Ano-Calendário {ano_declaracao}", "31/05", 0.00, 0.00, 0.00, 0, "ENTREGUE", data_agora, link_cloud], value_input_option='USER_ENTERED')
+                                    st.success("✅ Salvo!"); st.cache_data.clear(); st.rerun()
+                        else: st.warning("Anexe o arquivo.")
+
+        with tab_dasn_hist:
+            st.write("#### 🗂️ Arquivo de Declarações Entregues")
+            if not df_cont.empty:
+                df_dasn = df_cont[df_cont['TIPO_LIMPO'] == "DASN (Declaração Anual)"].copy()
+                if not df_dasn.empty:
+                    anos_dasn = sorted(list(set([str(c).split(' ')[-1] for c in df_dasn['COMPETENCIA']])), reverse=True)
+                    filtro_dasn = st.selectbox("Filtrar por Ano Referente:", ["Todos os Anos"] + anos_dasn)
+                    if filtro_dasn != "Todos os Anos": df_dasn = df_dasn[df_dasn['COMPETENCIA'].str.contains(filtro_dasn, na=False)]
+                    st.dataframe(df_dasn.iloc[::-1][['DATA_PAGAMENTO', 'COMPETENCIA', 'STATUS', 'LINK_COMPROVANTE']], column_config={"LINK_COMPROVANTE": st.column_config.LinkColumn("Visualizar (PDF)")}, use_container_width=True, hide_index=True)
+                else: st.info("Nenhuma Declaração guardada.")
+            else: st.info("Banco vazio.")
 
     # ==========================================
     # 💸 GESTÃO MENSAL (GUIAS DAS) & RALOS FINANCEIROS
@@ -4871,59 +5006,114 @@ elif menu_selecionado == "🏛️ Contabilidade e MEI":
             st.info("Nenhum lançamento contábil registrado ainda.")
 
     # ==========================================
-    # 🤖 ASSISTENTE FISCAL MEI (CHATBOT GOV.BR)
+    # 🤖 CONTADOR DIGITAL E ESTRATEGISTA FISCAL (IA 4.0 - ESTATÍSTICA APLICADA)
     # ==========================================
     st.divider()
     
-    if 'resposta_mei_ia' not in st.session_state:
-        st.session_state['resposta_mei_ia'] = ""
+    if "contador_mensagens" not in st.session_state:
+        st.session_state["contador_mensagens"] = [
+            {"role": "assistant", "content": "Olá! Sou o seu **Contador Digital Avançado**. Utilizo **estatística aplicada e projeções de cenário** cruzadas com a legislação tributária vigente (MEI, Simples Nacional, Trabalhista).\n\nComo posso projetar o crescimento da **Sweet Home** hoje?"}
+        ]
 
-    with st.expander("🤖 Assistente Fiscal do MEI (Tire suas dúvidas legais)", expanded=False):
-        st.markdown("Tem dúvidas sobre licença-maternidade, limite de compras, INSS, juros de atraso ou contratação de funcionário? **Pergunte ao nosso especialista treinado com as regras do portal Gov.br.**")
+    with st.expander("🤖 Consultoria Contábil Digital (Tire dúvidas e planeje o seu crescimento)", expanded=False):
         
-        pergunta_mei = st.text_area("O que você precisa saber sobre o MEI?", placeholder="Ex: Qual o juros se eu atrasar a guia DAS? Posso ter filial?")
+        caixa_chat_fiscal = st.container(height=500, border=False)
         
-        if st.button("Consultar Legislação 🔎"):
-            if pergunta_mei:
-                with st.spinner("Consultando base de dados do Simples Nacional..."):
+        with caixa_chat_fiscal:
+            for msg in st.session_state["contador_mensagens"]:
+                # Usa os avatares nativos do Streamlit para manter as tabelas Markdown intactas
+                with st.chat_message(msg["role"], avatar="👨‍💼" if msg["role"] == "assistant" else "👤"):
+                    st.markdown(msg["content"], unsafe_allow_html=True)
+        
+        if pergunta_fiscal := st.chat_input("Ex: Faça uma projeção estatística se eu estourar o MEI em 30%..."):
+            st.session_state["contador_mensagens"].append({"role": "user", "content": pergunta_fiscal})
+            
+            with caixa_chat_fiscal:
+                with st.chat_message("user", avatar="👤"):
+                    st.markdown(pergunta_fiscal)
+
+            with caixa_chat_fiscal:
+                with st.chat_message("assistant", avatar="👨‍💼"):
+                    resposta_placeholder = st.empty()
+                    resposta_placeholder.markdown("⏳ *A processar modelos estatísticos e legislação...*")
+                    
                     try:
                         import google.generativeai as genai
+                        import urllib.parse
                         genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
                         
-                        prompt_fiscal = f"""
-                        Você é um Consultor Fiscal Sênior especialista em MEI (Microempreendedor Individual) no Brasil, treinado com os dados oficiais do portal Gov.br (PGMEI) e Sebrae.
-                        A usuária Bia, dona da loja de enxovais Sweet Home, está te fazendo a seguinte pergunta:
+                        prompt_contador = f"""
+                        Você é o Contador Digital Sênior e Cientista de Dados da 'Sweet Home Enxovais'.
                         
-                        "{pergunta_mei}"
-                        
-                        REGRAS PARA A RESPOSTA:
-                        1. Seja direto, didático e empático. Evite juridiquês complicado.
-                        2. Baseie sua resposta APENAS na lei vigente do MEI no Brasil.
-                        3. Se perguntarem sobre multas de atraso do DAS, informe EXATAMENTE a regra: Multa de 0,33% ao dia (limitada a 20%) + Juros da taxa Selic + 1% no mês do pagamento.
-                        4. Se perguntarem sobre compras, o limite é de 80% da receita bruta.
-                        5. Formate a resposta usando Markdown (negritos e tópicos) para fácil leitura.
+                        DIRETRIZES DE INTELIGÊNCIA E FORMATO:
+                        1. ESTATÍSTICA APLICADA: Não dê respostas genéricas. Crie cenários matemáticos (Cenário A vs Cenário B), use projeções de probabilidade, impacto em fluxo de caixa e análise de risco (%). 
+                        2. VARIÁVEIS DINÂMICAS: Seja inteligente para deduzir variáveis. Se a usuária omitir dados numéricos, assuma estimativas lógicas do varejo brasileiro e demonstre a matemática de forma clara.
+                        3. USO DE TABELAS: Sempre que houver comparativo financeiro ou de impostos, USE OBRIGATORIAMENTE Tabelas Markdown formatadas de forma impecável.
+                        4. ESTRUTURA VISUAL: Use Emojis para guiar a leitura. Crie tópicos claros: 📊 Diagnóstico | 📈 Projeção Estatística | ⚖️ Base Legal | 🚀 Decisão Recomendada.
+                        5. MANTENHA-SE ESTRITAMENTE DENTRO DA LEI (LC 123/2006, etc), mas explique como um estrategista financeiro de alto nível.
                         """
                         
+                        # Transforma o histórico do Streamlit no formato nativo do Gemini
+                        historico_gemini = []
+                        for m in st.session_state["contador_mensagens"][-5:]:
+                            role = "model" if m["role"] == "assistant" else "user"
+                            historico_gemini.append({"role": role, "parts": [m["content"]]})
+                            
+                        # Remove a pergunta atual do array histórico
+                        pergunta_atual = historico_gemini.pop()['parts'][0]
+
                         modelos = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-pro"]
+                        sucesso_ia = False
+                        texto_final = ""
+                        
                         for m in modelos:
                             try:
-                                modelo = genai.GenerativeModel(m)
-                                resposta = modelo.generate_content(prompt_fiscal)
-                                if resposta:
-                                    st.session_state['resposta_mei_ia'] = resposta.text
+                                modelo = genai.GenerativeModel(m, system_instruction=prompt_contador)
+                                chat = modelo.start_chat(history=historico_gemini)
+                                resposta = chat.send_message(pergunta_atual)
+                                
+                                if resposta and resposta.text:
+                                    # 🛡️ A SOLUÇÃO DEFINITIVA DO BUG VERDE (Matemática Streamlit)
+                                    # Substitui o cifrão literal pela entidade HTML que o navegador lê, mas o Streamlit ignora!
+                                    texto_final = resposta.text.replace("$", "&#36;")
+                                    
+                                    resposta_placeholder.markdown(texto_final, unsafe_allow_html=True)
+                                    st.session_state["contador_mensagens"].append({"role": "assistant", "content": texto_final})
+                                    sucesso_ia = True
                                     break
-                            except: continue
+                            except Exception as e:
+                                continue
+                                
+                        if not sucesso_ia:
+                            resposta_placeholder.error("⚠️ Ocorreu uma instabilidade na consulta à legislação. Tente novamente.")
+                        
+                        # 📲 BOTÕES DE EXPORTAÇÃO (WHATSAPP E DOCUMENTO OFICIAL)
+                        if sucesso_ia and texto_final:
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            col_b1, col_b2 = st.columns(2)
+                            
+                            # Reverte o código HTML para o símbolo original apenas na exportação
+                            texto_limpo_exportacao = texto_final.replace("&#36;", "$")
+                            
+                            # 1. Exportação para WhatsApp
+                            msg_zap = urllib.parse.quote(f"🏢 *Parecer Contábil Estratégico - Sweet Home*\n\n{texto_limpo_exportacao}")
+                            col_b1.link_button("📲 Enviar Parecer por WhatsApp", f"https://wa.me/?text={msg_zap}", use_container_width=True)
+                            
+                            # 2. Exportação para Documento (TXT que abre em qualquer lugar)
+                            cabecalho_doc = f"RELATÓRIO DE INTELIGÊNCIA FISCAL E ESTATÍSTICA\nSistema Baply | Sweet Home\nData: {datetime.now().strftime('%d/%m/%Y %H:%M')}\n{'='*50}\n\n"
+                            doc_completo = cabecalho_doc + texto_limpo_exportacao.replace("**", "") # Remove asteriscos do markdown para o bloco de notas
+                            
+                            col_b2.download_button(
+                                label="📄 Descarregar Relatório (Documento)",
+                                data=doc_completo,
+                                file_name=f"Parecer_Contabil_SweetHome_{datetime.now().strftime('%Y%m%d')}.txt",
+                                mime="text/plain",
+                                use_container_width=True,
+                                type="secondary"
+                            )
+
                     except Exception as e:
-                        st.error(f"Erro na IA: {e}")
-            else:
-                st.warning("Digite uma pergunta antes de consultar.")
-                
-        if st.session_state['resposta_mei_ia']:
-            st.info("💡 **Resposta Oficial do Assistente:**")
-            st.markdown(st.session_state['resposta_mei_ia'])
-            if st.button("Limpar Resposta"):
-                st.session_state['resposta_mei_ia'] = ""
-                st.rerun()
+                        resposta_placeholder.error(f"Erro no sistema fiscal: {e}")
 
 # ==========================================================
 # ⚙️ SEÇÃO 9: PAINEL DE ADMINISTRAÇÃO (CÂMARA SECRETA)
@@ -4956,7 +5146,7 @@ elif menu_selecionado == "⚙️ Painel de Administração":
                 if val == "Ativo": return 'background-color: #d4edda; color: #155724; font-weight: bold;'
                 if val == "Bloqueado": return 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
                 return ''
-            st.dataframe(df_view.style.applymap(style_status, subset=['STATUS']), use_container_width=True, hide_index=True)
+            st.dataframe(df_view.style.map(style_status, subset=['STATUS']), use_container_width=True, hide_index=True)
         
         st.divider()
         col_add, col_edit = st.columns(2)
@@ -5004,7 +5194,7 @@ elif menu_selecionado == "⚙️ Painel de Administração":
     # ABA 2: PERSONALIZAÇÃO DA MARCA E CORES INTELIGENTES
     # -----------------------------------------------------
     with tab_marca:
-        # Função Ninja para salvar/atualizar chaves na planilha (se já não estiver declarada)
+        # 💡 Função Ninja ÚNICA para salvar/atualizar chaves na planilha
         def atualizar_config(chave, valor):
             aba_conf = planilha_mestre.worksheet("CONFIGURACOES")
             try:
@@ -5013,44 +5203,63 @@ elif menu_selecionado == "⚙️ Painel de Administração":
             except:
                 aba_conf.append_row([chave, valor])
 
-        # 🏢 PARTE 1: ALTERAÇÃO DO NOME DA EMPRESA
+        # ====================================================================
+        # 🏛️ DADOS FISCAIS E CNPJ
+        # ====================================================================
+        st.write("### 🏛️ Dados Fiscais (Para Cálculo MEI)")
+        with st.form("form_dados_fiscais"):
+            st.info("Digite o CNPJ para o sistema calcular o teto proporcional do seu imposto no ano de abertura.")
+            c_cnpj1, c_cnpj2 = st.columns([2, 1])
+            novo_cnpj = c_cnpj1.text_input("CNPJ da Empresa", value=CNPJ_LOJA, max_chars=18)
+            
+            c_cnpj2.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+            if c_cnpj2.form_submit_button("Sincronizar na Receita 🔎", type="primary", use_container_width=True):
+                if novo_cnpj:
+                    with st.spinner("A consultar a Receita Federal..."):
+                        dados_cnpj = buscar_cnpj_magico(novo_cnpj)
+                        if dados_cnpj:
+                            data_abertura_receita = dados_cnpj.get('abertura', '')
+                            atualizar_config("CNPJ_LOJA", novo_cnpj)
+                            atualizar_config("DATA_ABERTURA", data_abertura_receita)
+                            
+                            st.success(f"✅ Empresa: {dados_cnpj.get('nome', '')} | Abertura: {data_abertura_receita}")
+                            time.sleep(2)
+                            st.cache_data.clear(); st.cache_resource.clear(); st.rerun()
+                        else:
+                            st.error("❌ CNPJ inválido ou sistema da Receita indisponível.")
+                else:
+                    st.warning("Digite o CNPJ.")
+        
+        st.divider()
+
+        # ====================================================================
+        # 🏢 ALTERAÇÃO DO NOME DA EMPRESA
+        # ====================================================================
         st.write("### 🏢 Nome de Exibição do Sistema")
         with st.form("form_nome_empresa"):
             c_nome1, c_nome2 = st.columns([3, 1])
             novo_nome_loja = c_nome1.text_input("Nome da Loja/Empresa", value=NOME_LOJA)
             
-            # Alinhamento vertical do botão
             c_nome2.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
             
-            # O st.rerun() SÓ PODE ACONTECER se o botão for clicado!
             if c_nome2.form_submit_button("Atualizar Nome 💾", type="primary", use_container_width=True):
                 if novo_nome_loja.strip() != "":
                     with st.spinner("A atualizar nome no banco de dados..."):
                         atualizar_config("NOME_LOJA", novo_nome_loja.strip())
                         st.success("✅ Nome atualizado! O sistema será reiniciado.")
-                        import time
                         time.sleep(1)
-                        st.cache_data.clear()
-                        st.cache_resource.clear()
-                        st.rerun()
+                        st.cache_data.clear(); st.cache_resource.clear(); st.rerun()
                 else:
                     st.warning("O nome não pode ficar vazio.")
                     
         st.divider()
 
-        # 🎨 PARTE 2: LOGOTIPO E CORES (O código que já criamos continua aqui abaixo)
+        # ====================================================================
+        # 🎨 LOGOTIPO E CORES INTELIGENTES
+        # ====================================================================
         st.write("### 🎨 Identidade Visual e Inteligência de Cores")
         st.write("Faça o upload do logótipo. O sistema tentará extrair a cor principal automaticamente para pintar os botões e os menus!")
         
-        # Função Ninja para salvar/atualizar chaves na planilha sem dar erro
-        def atualizar_config(chave, valor):
-            aba_conf = planilha_mestre.worksheet("CONFIGURACOES")
-            try:
-                celula = aba_conf.find(chave, in_column=1)
-                aba_conf.update_cell(celula.row, 2, valor)
-            except:
-                aba_conf.append_row([chave, valor])
-
         c_logo1, c_logo2 = st.columns([1, 2])
         
         with c_logo1:
@@ -5065,7 +5274,6 @@ elif menu_selecionado == "⚙️ Painel de Administração":
                 if st.form_submit_button("Substituir Logótipo e Extrair Cor 🚀", type="primary"):
                     if img_nova_logo:
                         with st.spinner("A analisar os pixeis da imagem e a gerar paleta inteligente..."):
-                            # 1. Inteligência Artificial: Matemática de Cores (UI/UX)
                             try:
                                 from PIL import Image
                                 import io
@@ -5078,22 +5286,20 @@ elif menu_selecionado == "⚙️ Painel de Administração":
                                     r, g, b = cor
                                     # Ignora branco puro e preto puro para achar a cor real da logo
                                     if not (r>240 and g>240 and b>240) and not (r<15 and g<15 and b<15):
-                                        # COR 1: A Cor Pura (Para Botões e Linha Direita)
                                         cor_dominante_hex = '#%02x%02x%02x' % (r, g, b)
                                         
-                                        # COR 2: O Fundo do Menu (Mistura a cor pura com 92% de Branco)
+                                        # Cria o fundo lateral (92% branco misturado com a cor)
                                         r_sec = int(r + (255 - r) * 0.92)
                                         g_sec = int(g + (255 - g) * 0.92)
                                         b_sec = int(b + (255 - b) * 0.92)
                                         cor_secundaria_hex = '#%02x%02x%02x' % (r_sec, g_sec, b_sec)
                                         
-                                        # COR 3: O Texto (Escurece a cor pura em 80% para dar contraste de leitura)
+                                        # Cor do texto com alto contraste
                                         r_txt = int(r * 0.20)
                                         g_txt = int(g * 0.20)
                                         b_txt = int(b * 0.20)
                                         cor_texto_hex = '#%02x%02x%02x' % (r_txt, g_txt, b_txt)
                                         
-                                        # Atualiza a paleta completa no banco de dados automaticamente!
                                         atualizar_config("COR_PRIMARIA", cor_dominante_hex)
                                         atualizar_config("COR_SECUNDARIA", cor_secundaria_hex)
                                         atualizar_config("COR_TEXTO", cor_texto_hex)
@@ -5101,13 +5307,12 @@ elif menu_selecionado == "⚙️ Painel de Administração":
                             except Exception as e:
                                 print(f"Erro ao extrair e calcular cores: {e}")
 
-                            # 2. Sobe a imagem pro Cloudinary
+                            # Sobe a imagem pro Cloudinary
                             id_logo, link_nova_logo = upload_para_cloudinary(img_nova_logo.getvalue(), "logo_oficial_cliente", "Configuracoes")
                             
                             if link_nova_logo:
                                 atualizar_config("LOGO_URL", link_nova_logo)
                                 st.success("✅ Logótipo e Paleta visual calculada com sucesso! A repintar o ecrã...")
-                                import time
                                 time.sleep(2)
                                 st.cache_data.clear(); st.cache_resource.clear(); st.rerun()
                             else:
@@ -5117,7 +5322,9 @@ elif menu_selecionado == "⚙️ Painel de Administração":
 
         st.divider()
         
-        # 🖌️ FERRAMENTA ADICIONAL: EDITOR MANUAL DE CORES
+        # ====================================================================
+        # 🖌️ EDITOR MANUAL DE CORES
+        # ====================================================================
         st.write("### 🖌️ Editor Manual de Cores (Ajuste Fino)")
         st.write("O sistema escolheu uma cor automaticamente. Se preferir outro tom, use os selecionadores abaixo:")
         
@@ -5134,6 +5341,5 @@ elif menu_selecionado == "⚙️ Painel de Administração":
                     atualizar_config("COR_TEXTO", nova_cor_texto)
                     
                     st.success("✅ Cores atualizadas!")
-                    import time
                     time.sleep(1)
                     st.cache_data.clear(); st.cache_resource.clear(); st.rerun()
