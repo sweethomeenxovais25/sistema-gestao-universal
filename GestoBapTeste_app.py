@@ -122,7 +122,11 @@ st.set_page_config(
 if 'autenticado' not in st.session_state: st.session_state['autenticado'] = False
 if 'historico_sessao' not in st.session_state: st.session_state['historico_sessao'] = []
 if 'historico_estoque' not in st.session_state: st.session_state['historico_estoque'] = []
-if 'carrinho' not in st.session_state: st.session_state['carrinho'] = []    
+if 'carrinho' not in st.session_state: st.session_state['carrinho'] = []
+if 'recibo_cont' not in st.session_state: st.session_state['recibo_cont'] = None
+if 'ia_ficha_ativa' not in st.session_state: st.session_state['ia_ficha_ativa'] = False
+if 'relatorio_fixo' not in st.session_state: st.session_state['relatorio_fixo'] = None
+if 'resultado_ia_nota' not in st.session_state: st.session_state['resultado_ia_nota'] = None
     
 # --- AUXILIARES TÉCNICOS ---
 def limpar_v(v):
@@ -331,8 +335,14 @@ def upload_para_cloudinary(file_bytes, file_name, pasta_destino):
 @st.cache_data(ttl=60)
 def carregar_dados():
     # 💡 CORREÇÃO 1: Agora ele retorna 15 variáveis certinhas (adicionado mais um pd.DataFrame vazio para df_cred)
-    if not planilha_mestre: 
-        return {}, {}, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), {}, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+    def carregar_dados():
+    _vazio_df = pd.DataFrame()
+    _vazio_dict = {}
+    if not planilha_mestre:
+        return (_vazio_dict, _vazio_dict, _vazio_df, _vazio_df,
+                _vazio_df, _vazio_df, _vazio_df, _vazio_df,
+                _vazio_df, _vazio_df, _vazio_dict, _vazio_df,
+                _vazio_df, _vazio_df, _vazio_df)
     
     def ler_aba_seguro(nome):
         try:
@@ -3217,7 +3227,7 @@ elif menu_selecionado == "📂 Documentos":
                     return ''
 
                 st.dataframe(
-                    st.session_state.relatorio_fixo.style.applymap(style_status_cores, subset=['Status Site']),
+                    st.session_state.relatorio_fixo.style.map(style_status_cores, subset=['Status Site']),
                     use_container_width=True,
                     hide_index=True
                 )
@@ -4399,7 +4409,17 @@ elif menu_selecionado == "🏛️ Contabilidade e MEI":
     col_ano1, col_ano2 = st.columns([1, 4])
     ano_selecionado = col_ano1.selectbox("📅 Selecione o Ano Base:", reversed(anos_disponiveis), index=1)
     
-    ano_declaracao = ano_selecionado - 1 
+    ano_declaracao = ano_selecionado - 1
+
+# Define a data de corte PF/PJ com base na abertura do CNPJ
+data_corte_cnpj = pd.to_datetime("2000-01-01")  # Fallback seguro
+if DATA_ABERTURA:
+    try:
+        data_corte_cnpj = pd.to_datetime(
+            datetime.strptime(DATA_ABERTURA, "%d/%m/%Y").date()
+        )
+    except Exception:
+        pass 
 
     # ==========================================
     # 🌡️ TERMÔMETRO DE FATURAMENTO (LEI DO MEI)
@@ -4545,8 +4565,8 @@ elif menu_selecionado == "🏛️ Contabilidade e MEI":
         st.warning("⚠️ Cadastre o CNPJ na aba 'Painel de Administração' para ativar o Raio-X.")
 
     # 📝 DECLARAÇÃO ANUAL (DASN-SIMEI)
-        st.write("")
-        with st.expander(f"📝 Gerar e Comprovar Declaração Anual (DASN-SIMEI)", expanded=False):
+    st.write("")
+    with st.expander(f"📝 Gerar e Comprovar Declaração Anual (DASN-SIMEI)", expanded=False):
             tab_dasn_nova, tab_dasn_hist = st.tabs([f"📝 Simulador e Envio ({ano_declaracao})", "🗂️ Histórico de Entregas"])
             
             with tab_dasn_nova:
@@ -5153,7 +5173,7 @@ elif menu_selecionado == "⚙️ Painel de Administração":
                 if val == "Ativo": return 'background-color: #d4edda; color: #155724; font-weight: bold;'
                 if val == "Bloqueado": return 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
                 return ''
-            st.dataframe(df_view.style.applymap(style_status, subset=['STATUS']), use_container_width=True, hide_index=True)
+            st.dataframe(df_view.style.map(style_status, subset=['STATUS']), use_container_width=True, hide_index=True)
         
         st.divider()
         col_add, col_edit = st.columns(2)
