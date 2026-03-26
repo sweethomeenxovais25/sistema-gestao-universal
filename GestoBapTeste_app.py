@@ -334,15 +334,9 @@ def upload_para_cloudinary(file_bytes, file_name, pasta_destino):
 
 @st.cache_data(ttl=60)
 def carregar_dados():
-    # 💡 CORREÇÃO 1: Agora ele retorna 15 variáveis certinhas (adicionado mais um pd.DataFrame vazio para df_cred)
-    def carregar_dados():
-    _vazio_df = pd.DataFrame()
-    _vazio_dict = {}
-    if not planilha_mestre:
-        return (_vazio_dict, _vazio_dict, _vazio_df, _vazio_df,
-                _vazio_df, _vazio_df, _vazio_df, _vazio_df,
-                _vazio_df, _vazio_df, _vazio_dict, _vazio_df,
-                _vazio_df, _vazio_df, _vazio_df)
+    # 💡 CORREÇÃO 1: Agora ele retorna 15 variáveis certinhas
+    if not planilha_mestre: 
+        return {}, {}, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), {}, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
     
     def ler_aba_seguro(nome):
         try:
@@ -4409,17 +4403,15 @@ elif menu_selecionado == "🏛️ Contabilidade e MEI":
     col_ano1, col_ano2 = st.columns([1, 4])
     ano_selecionado = col_ano1.selectbox("📅 Selecione o Ano Base:", reversed(anos_disponiveis), index=1)
     
-    ano_declaracao = ano_selecionado - 1
+    ano_declaracao = ano_selecionado - 1 
 
-# Define a data de corte PF/PJ com base na abertura do CNPJ
-data_corte_cnpj = pd.to_datetime("2000-01-01")  # Fallback seguro
-if DATA_ABERTURA:
-    try:
-        data_corte_cnpj = pd.to_datetime(
-            datetime.strptime(DATA_ABERTURA, "%d/%m/%Y").date()
-        )
-    except Exception:
-        pass 
+    # Define a data de corte PF/PJ com base na abertura do CNPJ
+    data_corte_cnpj = pd.to_datetime("1900-01-01")  # Fallback seguro
+    if DATA_ABERTURA:
+        try:
+            data_corte_cnpj = pd.to_datetime(datetime.strptime(DATA_ABERTURA, "%d/%m/%Y").date())
+        except Exception:
+            pass 
 
     # ==========================================
     # 🌡️ TERMÔMETRO DE FATURAMENTO (LEI DO MEI)
@@ -4438,80 +4430,64 @@ if DATA_ABERTURA:
 
     if not df_vendas_hist.empty:
         df_termometro = df_vendas_hist.copy()
-        
         col_data_venda = 'DATA DA VENDA' if 'DATA DA VENDA' in df_termometro.columns else df_termometro.columns[1] 
         df_termometro['DATA_DT'] = pd.to_datetime(df_termometro[col_data_venda], format='%d/%m/%Y', errors='coerce')
-        
         vendas_ano_foco = df_termometro[df_termometro['DATA_DT'].dt.year == ano_selecionado]
         
         vendas_validas = vendas_ano_foco[
             (~vendas_ano_foco['CÓD. CLIENTE'].str.upper().str.contains("TOTAIS", na=False)) &
-            (vendas_ano_foco.iloc[:, 22].astype(str).str.strip().str.lower() != "cancelado")
+            (vendas_ano_foco.iloc[:, 22].astype(str).str.strip().str.lower() != "cancelado") &
+            (vendas_ano_foco['DATA_DT'] >= data_corte_cnpj)
         ].copy()
 
         vendas_validas['VALOR_BRUTO'] = vendas_validas.iloc[:, 11].apply(limpar_v) 
         faturamento_atual = vendas_validas['VALOR_BRUTO'].sum()
         
-        # 🧠 O CÉREBRO TRIBUTÁRIO (Limites Proporcionais e Regra dos 20%)
-        limite_mei = 81000.00 # Limite padrão para anos completos
-        limite_extrapolacao = 97200.00 # Limite padrão com 20% de tolerância
+        limite_mei = 81000.00
+        limite_extrapolacao = 97200.00
         meses_ativos = 12
 
         if DATA_ABERTURA:
             try:
                 data_abertura_obj = datetime.strptime(DATA_ABERTURA, "%d/%m/%Y").date()
-                ano_abertura = data_abertura_obj.year
-                mes_abertura = data_abertura_obj.month
-                
-                if ano_selecionado < ano_abertura:
-                    limite_mei = 0.0 # A empresa ainda não existia
+                if ano_selecionado < data_abertura_obj.year:
+                    limite_mei = 0.0
                     limite_extrapolacao = 0.0
-                elif ano_selecionado == ano_abertura:
-                    # Regra da Proporcionalidade: R$ 6.750 por mês
-                    meses_ativos = 12 - mes_abertura + 1
+                elif ano_selecionado == data_abertura_obj.year:
+                    meses_ativos = 12 - data_abertura_obj.month + 1
                     limite_mei = meses_ativos * 6750.00
-                    limite_extrapolacao = limite_mei * 1.20 # + 20% de tolerância
-            except:
-                pass
+                    limite_extrapolacao = limite_mei * 1.20
+            except: pass
 
         percentual_atingido = (faturamento_atual / limite_mei) * 100 if limite_mei > 0 else 0
 
-        # 🇧🇷 Formatadores BR
         fat_br = f"R$ {faturamento_atual:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
         lim_br = f"R$ {limite_mei:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
         ext_br = f"R$ {limite_extrapolacao:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-        # 🚥 ANÁLISE DE RISCO FISCAL (COM DESIGN HTML ENTERPRISE)
         if limite_mei == 0:
             cor_termo = "#a0a0a0"; icone = "⚪"; titulo_status = "Inativo"; texto_status = "A empresa não estava aberta neste ano fiscal."
-            percentual_atingido = 0
         elif faturamento_atual <= limite_mei * 0.80:
             cor_termo = "#28a745"; icone = "🟢"; titulo_status = "Zona Segura"; texto_status = "Faturamento excelente e dentro da margem legal do MEI."
         elif faturamento_atual <= limite_mei:
-            cor_termo = "#ffa500"; icone = "🟡"; titulo_status = "Alerta Amarelo"; texto_status = "Aproximando-se do teto legal do MEI. Monitore de perto."
+            cor_termo = "#ffa500"; icone = "🟡"; titulo_status = "Alerta Amarelo"; texto_status = "Aproximando-se do teto legal do MEI. Monitore as vendas de perto."
         elif faturamento_atual <= limite_extrapolacao:
-            cor_termo = "#fd7e14"; icone = "🟠"; titulo_status = "Estouro Tolerável (Até 20%)"; texto_status = f"Faturou <b>{fat_br}</b>. Passou do teto de <b>{lim_br}</b>, mas abaixo dos 20%. Será desenquadrada no próximo ano."
+            cor_termo = "#fd7e14"; icone = "🟠"; titulo_status = "Estouro Tolerável (Até 20%)"; texto_status = f"Faturou <b>{fat_br}</b>. Passou do teto de <b>{lim_br}</b>, mas ficou abaixo dos 20%. Será desenquadrada no próximo ano."
         else:
-            cor_termo = "#ff4b4b"; icone = "🔴"; titulo_status = "ESTOURO CRÍTICO (> 20%)"; texto_status = f"Faturou <b>{fat_br}</b>. Ultrapassou a tolerância de <b>{ext_br}</b>! Desenquadramento RETROATIVO. Contate um contador JÁ!"
+            cor_termo = "#ff4b4b"; icone = "🔴"; titulo_status = "ESTOURO CRÍTICO (> 20%)"; texto_status = f"Faturou <b>{fat_br}</b>. Ultrapassou a tolerância de <b>{ext_br}</b>! Desenquadramento RETROATIVO. Contate o contador JÁ!"
 
         c_termo1, c_termo2, c_termo3 = st.columns([1, 1, 1])
         c_termo1.metric(f"Faturado em {ano_selecionado}", f"R$ {faturamento_atual:,.2f}")
-        c_termo2.metric("Teto Proporcional" if meses_ativos < 12 else "Teto Máximo MEI", f"R$ {limite_mei:,.2f}", help=f"Calculado com base em {meses_ativos} meses de atividade.")
-        
-        if faturamento_atual <= limite_mei:
-            c_termo3.metric("Margem Restante", f"R$ {limite_mei - faturamento_atual:,.2f}")
-        else:
-            c_termo3.metric("Valor Excedido", f"R$ {faturamento_atual - limite_mei:,.2f}", delta="Cuidado!", delta_color="inverse")
+        c_termo2.metric("Teto Máximo MEI", f"R$ {limite_mei:,.2f}")
+        if faturamento_atual <= limite_mei: c_termo3.metric("Margem Restante", f"R$ {limite_mei - faturamento_atual:,.2f}")
+        else: c_termo3.metric("Valor Excedido", f"R$ {faturamento_atual - limite_mei:,.2f}", delta="Cuidado!", delta_color="inverse")
 
         progresso_visual = min(percentual_atingido / 100, 1.0)
         layout_termometro = f"""
-        <div style="width: 100%; background-color: #e9ecef; border-radius: 8px; height: 12px; margin-bottom: 8px;">
-            <div style="width: {progresso_visual*100}%; background-color: {cor_termo}; height: 12px; border-radius: 8px; transition: width 0.5s ease-in-out;">
-            </div>
+        <div style="width: 100%; background-color: #f0f2f6; border-radius: 8px; height: 12px; margin-bottom: 8px;">
+            <div style="width: {progresso_visual*100}%; background-color: {cor_termo}; height: 12px; border-radius: 8px; transition: width 0.5s ease-in-out;"></div>
         </div>
-        <div style="font-weight: bold; color: {cor_termo}; text-align: right; font-size: 13px; margin-bottom: 15px;">
-            {percentual_atingido:.1f}% do teto atingido
-        </div>
+        <div style="font-weight: bold; color: {cor_termo}; text-align: right; font-size: 13px; margin-bottom: 15px;">{percentual_atingido:.1f}% do teto atingido</div>
         <div style="padding: 15px; border-left: 5px solid {cor_termo}; background-color: #f8f9fa; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
             <strong style="color: {cor_termo}; font-size: 16px;">{icone} {titulo_status}</strong><br>
             <span style="color: #495057; font-size: 14px;">{texto_status}</span>
@@ -4539,7 +4515,6 @@ if DATA_ABERTURA:
 
             if not vendas_totais_ano.empty:
                 vendas_totais_ano['VALOR_BRUTO'] = vendas_totais_ano.iloc[:, 11].apply(limpar_v)
-                
                 vendas_pf = vendas_totais_ano[vendas_totais_ano['DATA_DT'] < data_corte_cnpj]
                 vendas_pj = vendas_totais_ano[vendas_totais_ano['DATA_DT'] >= data_corte_cnpj]
                 
@@ -4553,24 +4528,23 @@ if DATA_ABERTURA:
                 c_tg.metric("💰 Faturamento Global Real", f"R$ {total_geral:,.2f}", delta="Visão 360º")
                 
                 if total_pf > 0 and total_pj > 0:
-                    percentual_pj = (total_pj / total_geral) * 100
-                    st.info(f"💡 **Estratégia:** {percentual_pj:.1f}% do seu faturamento foi oficializado.")
+                    st.info(f"💡 **Estratégia:** {(total_pj / total_geral) * 100:.1f}% do seu faturamento foi oficializado.")
                 elif total_pf > 0 and total_pj == 0:
                     st.warning("⚠️ Todas as vendas ocorreram antes da abertura do CNPJ.")
                 elif total_pf == 0 and total_pj > 0:
                     st.success("✅ 100% do seu faturamento foi oficializado pelo CNPJ.")
-            else:
-                st.info(f"Nenhuma venda registrada no ano de {ano_selecionado}.")
+            else: st.info(f"Nenhuma venda registrada no ano de {ano_selecionado}.")
     else:
         st.warning("⚠️ Cadastre o CNPJ na aba 'Painel de Administração' para ativar o Raio-X.")
 
     # 📝 DECLARAÇÃO ANUAL (DASN-SIMEI)
     st.write("")
     with st.expander(f"📝 Gerar e Comprovar Declaração Anual (DASN-SIMEI)", expanded=False):
-            tab_dasn_nova, tab_dasn_hist = st.tabs([f"📝 Simulador e Envio ({ano_declaracao})", "🗂️ Histórico de Entregas"])
-            
-            with tab_dasn_nova:
-                st.info(f"O Governo exige que declare até 31 de maio de {ano_selecionado} tudo o que faturou em **{ano_declaracao}**.")
+        tab_dasn_nova, tab_dasn_hist = st.tabs([f"📝 Simulador e Envio ({ano_declaracao})", "🗂️ Histórico de Entregas"])
+        
+        with tab_dasn_nova:
+            st.info(f"O Governo exige que declare até 31 de maio de {ano_selecionado} tudo o que faturou em **{ano_declaracao}**.")
+            if not df_vendas_hist.empty:
                 vendas_ano_anterior = df_termometro[df_termometro['DATA_DT'].dt.year == ano_declaracao].copy()
                 vendas_validas_passado = vendas_ano_anterior[
                     (~vendas_ano_anterior['CÓD. CLIENTE'].str.upper().str.contains("TOTAIS", na=False)) &
@@ -4579,82 +4553,80 @@ if DATA_ABERTURA:
                 ].copy()
                 vendas_validas_passado['VALOR_BRUTO'] = vendas_validas_passado.iloc[:, 11].apply(limpar_v)
                 faturamento_passado = vendas_validas_passado['VALOR_BRUTO'].sum()
-                
-                limite_passado = 81000.00
-                limite_extra_passado = 97200.00
-                if DATA_ABERTURA:
-                    try:
-                        data_abertura_obj = datetime.strptime(DATA_ABERTURA, "%d/%m/%Y").date()
-                        if ano_declaracao < data_abertura_obj.year: limite_passado = limite_extra_passado = 0.0
-                        elif ano_declaracao == data_abertura_obj.year:
-                            meses_ativos_passado = 12 - data_abertura_obj.month + 1
-                            limite_passado = meses_ativos_passado * 6750.00
-                            limite_extra_passado = limite_passado * 1.20
-                    except: pass
-                
-                excesso = faturamento_passado - limite_passado if faturamento_passado > limite_passado else 0.0
-                fat_passado_br = f"R$ {faturamento_passado:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                lim_passado_br = f"R$ {limite_passado:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                excesso_br = f"R$ {excesso:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                
-                st.markdown("### 📊 Simulador Oficial DASN-SIMEI")
-                cor_alerta = "#ff4b4b" if excesso > 0 else "#28a745"
-                layout_receita = f"""
-                <div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin-bottom: 20px; background-color: #fafafa;">
-                    <h4 style="margin-top: 0; color: #333;">Apuração do Excesso de Receita ({ano_declaracao})</h4>
-                    <table style="width: 100%; border-collapse: collapse; font-family: monospace;">
-                        <tr style="border-bottom: 1px solid #eee;"><td style="padding: 8px 0;">Receita Bruta anual:</td><td style="text-align: right; font-weight: bold;">{fat_passado_br} (+)</td></tr>
-                        <tr style="border-bottom: 1px solid #eee;"><td style="padding: 8px 0;">Limite legal no ano:</td><td style="text-align: right; font-weight: bold;">{lim_passado_br} (-)</td></tr>
-                        <tr><td style="padding: 8px 0;">Valor acima do limite:</td><td style="text-align: right; font-weight: bold; color: {cor_alerta};">{excesso_br} (=)</td></tr>
-                    </table>
-                </div>"""
-                st.markdown(layout_receita, unsafe_allow_html=True)
-                
-                if excesso > 0: st.error("🚨 A receita bruta ultrapassou o limite.")
-                else: st.success("✅ Tudo OK! Faturou dentro do limite.")
-                
-                st.write("#### 📑 Conferência de Guias Pagas")
-                if not df_cont.empty:
-                    df_cont['TIPO_LIMPO'] = df_cont['TIPO_GUIA'].astype(str).str.strip()
-                    df_cont['COMP_LIMPA'] = df_cont['COMPETENCIA'].astype(str).str.strip()
-                    guias_passado = df_cont[(df_cont['TIPO_LIMPO'] == "DAS MEI (Mensal)") & (df_cont['COMP_LIMPA'].str.contains(str(ano_declaracao), na=False)) & (df_cont['STATUS'].astype(str).str.strip().str.upper() == "PAGO")].copy()
-                    if not guias_passado.empty:
-                        st.dataframe(guias_passado[['COMPETENCIA', 'DATA_PAGAMENTO', 'VALOR_PAGO', 'PREJUIZO_JUROS']], use_container_width=True, hide_index=True)
-                    else: st.info("Nenhuma guia do ano anterior registada como paga.")
-                
-                st.divider()
-                c_dasn1, c_dasn2 = st.columns([1, 1])
-                with c_dasn1:
-                    st.write("**Pronto para declarar?**")
-                    st.link_button("🌐 Acessar Portal da Receita Federal", "https://www8.receita.fazenda.gov.br/SimplesNacional/Aplicacoes/ATSPO/dasnsimei.app/Default.aspx", type="primary", use_container_width=True)
-                with c_dasn2:
-                    with st.form("form_dasn", clear_on_submit=True):
-                        st.markdown("**🔒 Anexar Comprovante Final**")
-                        dasn_arquivo = st.file_uploader("Recibo DASN (PDF)", type=['pdf', 'png', 'jpg'])
-                        if st.form_submit_button("Guardar Recibo", type="secondary", use_container_width=True):
-                            if dasn_arquivo:
-                                with st.spinner("Salvando..."):
-                                    import os
-                                    ext_dasn = os.path.splitext(dasn_arquivo.name)[1].lower()
-                                    nome_doc = f"DASN_SIMEI_{ano_declaracao}_entregue_em_{ano_selecionado}{ext_dasn}"
-                                    id_cloud, link_cloud = upload_para_cloudinary(dasn_arquivo.getvalue(), nome_doc, "Contabilidade")
-                                    if link_cloud:
-                                        data_agora = datetime.now(pytz.timezone('America/Sao_Paulo')).strftime("%d/%m/%Y")
-                                        planilha_mestre.worksheet("CONTABILIDADE").append_row(["DASN (Declaração Anual)", f"Ano-Calendário {ano_declaracao}", "31/05", 0.00, 0.00, 0.00, 0, "ENTREGUE", data_agora, link_cloud], value_input_option='USER_ENTERED')
-                                        st.success("✅ Salvo!"); st.cache_data.clear(); st.rerun()
-                            else: st.warning("Anexe o arquivo.")
+            else:
+                faturamento_passado = 0.0
+            
+            limite_passado = 81000.00
+            if DATA_ABERTURA:
+                try:
+                    data_ab_obj = datetime.strptime(DATA_ABERTURA, "%d/%m/%Y").date()
+                    if ano_declaracao < data_ab_obj.year: limite_passado = 0.0
+                    elif ano_declaracao == data_ab_obj.year: limite_passado = (12 - data_ab_obj.month + 1) * 6750.00
+                except: pass
+            
+            excesso = faturamento_passado - limite_passado if faturamento_passado > limite_passado else 0.0
+            fat_passado_br = f"R$ {faturamento_passado:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            lim_passado_br = f"R$ {limite_passado:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            excesso_br = f"R$ {excesso:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            
+            st.markdown("### 📊 Simulador Oficial DASN-SIMEI")
+            cor_alerta = "#ff4b4b" if excesso > 0 else "#28a745"
+            layout_receita = f"""
+            <div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin-bottom: 20px; background-color: #fafafa;">
+                <h4 style="margin-top: 0; color: #333;">Apuração do Excesso de Receita ({ano_declaracao})</h4>
+                <table style="width: 100%; border-collapse: collapse; font-family: monospace;">
+                    <tr style="border-bottom: 1px solid #eee;"><td style="padding: 8px 0;">Receita Bruta anual:</td><td style="text-align: right; font-weight: bold;">{fat_passado_br} (+)</td></tr>
+                    <tr style="border-bottom: 1px solid #eee;"><td style="padding: 8px 0;">Limite legal no ano:</td><td style="text-align: right; font-weight: bold;">{lim_passado_br} (-)</td></tr>
+                    <tr><td style="padding: 8px 0;">Valor acima do limite:</td><td style="text-align: right; font-weight: bold; color: {cor_alerta};">{excesso_br} (=)</td></tr>
+                </table>
+            </div>"""
+            st.markdown(layout_receita, unsafe_allow_html=True)
+            
+            if excesso > 0: st.error("🚨 A receita bruta ultrapassou o limite.")
+            else: st.success("✅ Tudo OK! Faturou dentro do limite.")
+            
+            st.write("#### 📑 Conferência de Guias Pagas")
+            if not df_cont.empty:
+                df_cont['TIPO_LIMPO'] = df_cont['TIPO_GUIA'].astype(str).str.strip()
+                df_cont['COMP_LIMPA'] = df_cont['COMPETENCIA'].astype(str).str.strip()
+                guias_passado = df_cont[(df_cont['TIPO_LIMPO'] == "DAS MEI (Mensal)") & (df_cont['COMP_LIMPA'].str.contains(str(ano_declaracao), na=False)) & (df_cont['STATUS'].astype(str).str.strip().str.upper() == "PAGO")].copy()
+                if not guias_passado.empty:
+                    st.dataframe(guias_passado[['COMPETENCIA', 'DATA_PAGAMENTO', 'VALOR_PAGO', 'PREJUIZO_JUROS']], use_container_width=True, hide_index=True)
+                else: st.info("Nenhuma guia do ano anterior registada como paga.")
+            
+            st.divider()
+            c_dasn1, c_dasn2 = st.columns([1, 1])
+            with c_dasn1:
+                st.write("**Pronto para declarar?**")
+                st.link_button("🌐 Acessar Portal da Receita Federal", "https://www8.receita.fazenda.gov.br/SimplesNacional/Aplicacoes/ATSPO/dasnsimei.app/Default.aspx", type="primary", use_container_width=True)
+            with c_dasn2:
+                with st.form("form_dasn", clear_on_submit=True):
+                    st.markdown("**🔒 Anexar Comprovante Final**")
+                    dasn_arquivo = st.file_uploader("Recibo DASN (PDF)", type=['pdf', 'png', 'jpg'])
+                    if st.form_submit_button("Guardar Recibo", type="secondary", use_container_width=True):
+                        if dasn_arquivo:
+                            with st.spinner("Salvando..."):
+                                import os
+                                ext_dasn = os.path.splitext(dasn_arquivo.name)[1].lower()
+                                nome_doc = f"DASN_SIMEI_{ano_declaracao}_entregue_em_{ano_selecionado}{ext_dasn}"
+                                id_cloud, link_cloud = upload_para_cloudinary(dasn_arquivo.getvalue(), nome_doc, "Contabilidade")
+                                if link_cloud:
+                                    data_agora = datetime.now(pytz.timezone('America/Sao_Paulo')).strftime("%d/%m/%Y")
+                                    planilha_mestre.worksheet("CONTABILIDADE").append_row(["DASN (Declaração Anual)", f"Ano-Calendário {ano_declaracao}", "31/05", 0.00, 0.00, 0.00, 0, "ENTREGUE", data_agora, link_cloud], value_input_option='USER_ENTERED')
+                                    st.success("✅ Salvo!"); st.cache_data.clear(); st.rerun()
+                        else: st.warning("Anexe o arquivo.")
 
-            with tab_dasn_hist:
-                st.write("#### 🗂️ Arquivo de Declarações Entregues")
-                if not df_cont.empty:
-                    df_dasn = df_cont[df_cont['TIPO_LIMPO'] == "DASN (Declaração Anual)"].copy()
-                    if not df_dasn.empty:
-                        anos_dasn = sorted(list(set([str(c).split(' ')[-1] for c in df_dasn['COMPETENCIA']])), reverse=True)
-                        filtro_dasn = st.selectbox("Filtrar por Ano Referente:", ["Todos os Anos"] + anos_dasn)
-                        if filtro_dasn != "Todos os Anos": df_dasn = df_dasn[df_dasn['COMPETENCIA'].str.contains(filtro_dasn, na=False)]
-                        st.dataframe(df_dasn.iloc[::-1][['DATA_PAGAMENTO', 'COMPETENCIA', 'STATUS', 'LINK_COMPROVANTE']], column_config={"LINK_COMPROVANTE": st.column_config.LinkColumn("Visualizar (PDF)")}, use_container_width=True, hide_index=True)
-                    else: st.info("Nenhuma Declaração guardada.")
-                else: st.info("Banco vazio.")
+        with tab_dasn_hist:
+            st.write("#### 🗂️ Arquivo de Declarações Entregues")
+            if not df_cont.empty:
+                df_dasn = df_cont[df_cont['TIPO_LIMPO'] == "DASN (Declaração Anual)"].copy()
+                if not df_dasn.empty:
+                    anos_dasn = sorted(list(set([str(c).split(' ')[-1] for c in df_dasn['COMPETENCIA']])), reverse=True)
+                    filtro_dasn = st.selectbox("Filtrar por Ano Referente:", ["Todos os Anos"] + anos_dasn)
+                    if filtro_dasn != "Todos os Anos": df_dasn = df_dasn[df_dasn['COMPETENCIA'].str.contains(filtro_dasn, na=False)]
+                    st.dataframe(df_dasn.iloc[::-1][['DATA_PAGAMENTO', 'COMPETENCIA', 'STATUS', 'LINK_COMPROVANTE']], column_config={"LINK_COMPROVANTE": st.column_config.LinkColumn("Visualizar (PDF)")}, use_container_width=True, hide_index=True)
+                else: st.info("Nenhuma Declaração guardada.")
+            else: st.info("Banco vazio.")
 
     # ==========================================
     # 💸 GESTÃO MENSAL (GUIAS DAS) & RALOS FINANCEIROS
@@ -5221,7 +5193,7 @@ elif menu_selecionado == "⚙️ Painel de Administração":
     # ABA 2: PERSONALIZAÇÃO DA MARCA E CORES INTELIGENTES
     # -----------------------------------------------------
     with tab_marca:
-        # Função Ninja para salvar/atualizar chaves na planilha (se já não estiver declarada)
+        # 💡 Função Ninja ÚNICA para salvar/atualizar chaves na planilha
         def atualizar_config(chave, valor):
             aba_conf = planilha_mestre.worksheet("CONFIGURACOES")
             try:
@@ -5231,7 +5203,7 @@ elif menu_selecionado == "⚙️ Painel de Administração":
                 aba_conf.append_row([chave, valor])
 
         # ====================================================================
-        # 🏛️ INÍCIO DO NOVO BLOCO: DADOS FISCAIS E CNPJ
+        # 🏛️ DADOS FISCAIS E CNPJ
         # ====================================================================
         st.write("### 🏛️ Dados Fiscais (Para Cálculo MEI)")
         with st.form("form_dados_fiscais"):
@@ -5250,52 +5222,43 @@ elif menu_selecionado == "⚙️ Painel de Administração":
                             atualizar_config("DATA_ABERTURA", data_abertura_receita)
                             
                             st.success(f"✅ Empresa: {dados_cnpj.get('nome', '')} | Abertura: {data_abertura_receita}")
-                            import time; time.sleep(2)
+                            time.sleep(2)
                             st.cache_data.clear(); st.cache_resource.clear(); st.rerun()
                         else:
                             st.error("❌ CNPJ inválido ou sistema da Receita indisponível.")
                 else:
                     st.warning("Digite o CNPJ.")
+        
         st.divider()
 
-        # 🏢 PARTE 1: ALTERAÇÃO DO NOME DA EMPRESA
+        # ====================================================================
+        # 🏢 ALTERAÇÃO DO NOME DA EMPRESA
+        # ====================================================================
         st.write("### 🏢 Nome de Exibição do Sistema")
         with st.form("form_nome_empresa"):
             c_nome1, c_nome2 = st.columns([3, 1])
             novo_nome_loja = c_nome1.text_input("Nome da Loja/Empresa", value=NOME_LOJA)
             
-            # Alinhamento vertical do botão
             c_nome2.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
             
-            # O st.rerun() SÓ PODE ACONTECER se o botão for clicado!
             if c_nome2.form_submit_button("Atualizar Nome 💾", type="primary", use_container_width=True):
                 if novo_nome_loja.strip() != "":
                     with st.spinner("A atualizar nome no banco de dados..."):
                         atualizar_config("NOME_LOJA", novo_nome_loja.strip())
                         st.success("✅ Nome atualizado! O sistema será reiniciado.")
-                        import time
                         time.sleep(1)
-                        st.cache_data.clear()
-                        st.cache_resource.clear()
-                        st.rerun()
+                        st.cache_data.clear(); st.cache_resource.clear(); st.rerun()
                 else:
                     st.warning("O nome não pode ficar vazio.")
                     
         st.divider()
 
-        # 🎨 PARTE 2: LOGOTIPO E CORES (O código que já criamos continua aqui abaixo)
+        # ====================================================================
+        # 🎨 LOGOTIPO E CORES INTELIGENTES
+        # ====================================================================
         st.write("### 🎨 Identidade Visual e Inteligência de Cores")
         st.write("Faça o upload do logótipo. O sistema tentará extrair a cor principal automaticamente para pintar os botões e os menus!")
         
-        # Função Ninja para salvar/atualizar chaves na planilha sem dar erro
-        def atualizar_config(chave, valor):
-            aba_conf = planilha_mestre.worksheet("CONFIGURACOES")
-            try:
-                celula = aba_conf.find(chave, in_column=1)
-                aba_conf.update_cell(celula.row, 2, valor)
-            except:
-                aba_conf.append_row([chave, valor])
-
         c_logo1, c_logo2 = st.columns([1, 2])
         
         with c_logo1:
@@ -5310,7 +5273,6 @@ elif menu_selecionado == "⚙️ Painel de Administração":
                 if st.form_submit_button("Substituir Logótipo e Extrair Cor 🚀", type="primary"):
                     if img_nova_logo:
                         with st.spinner("A analisar os pixeis da imagem e a gerar paleta inteligente..."):
-                            # 1. Inteligência Artificial: Matemática de Cores (UI/UX)
                             try:
                                 from PIL import Image
                                 import io
@@ -5323,22 +5285,20 @@ elif menu_selecionado == "⚙️ Painel de Administração":
                                     r, g, b = cor
                                     # Ignora branco puro e preto puro para achar a cor real da logo
                                     if not (r>240 and g>240 and b>240) and not (r<15 and g<15 and b<15):
-                                        # COR 1: A Cor Pura (Para Botões e Linha Direita)
                                         cor_dominante_hex = '#%02x%02x%02x' % (r, g, b)
                                         
-                                        # COR 2: O Fundo do Menu (Mistura a cor pura com 92% de Branco)
+                                        # Cria o fundo lateral (92% branco misturado com a cor)
                                         r_sec = int(r + (255 - r) * 0.92)
                                         g_sec = int(g + (255 - g) * 0.92)
                                         b_sec = int(b + (255 - b) * 0.92)
                                         cor_secundaria_hex = '#%02x%02x%02x' % (r_sec, g_sec, b_sec)
                                         
-                                        # COR 3: O Texto (Escurece a cor pura em 80% para dar contraste de leitura)
+                                        # Cor do texto com alto contraste
                                         r_txt = int(r * 0.20)
                                         g_txt = int(g * 0.20)
                                         b_txt = int(b * 0.20)
                                         cor_texto_hex = '#%02x%02x%02x' % (r_txt, g_txt, b_txt)
                                         
-                                        # Atualiza a paleta completa no banco de dados automaticamente!
                                         atualizar_config("COR_PRIMARIA", cor_dominante_hex)
                                         atualizar_config("COR_SECUNDARIA", cor_secundaria_hex)
                                         atualizar_config("COR_TEXTO", cor_texto_hex)
@@ -5346,13 +5306,12 @@ elif menu_selecionado == "⚙️ Painel de Administração":
                             except Exception as e:
                                 print(f"Erro ao extrair e calcular cores: {e}")
 
-                            # 2. Sobe a imagem pro Cloudinary
+                            # Sobe a imagem pro Cloudinary
                             id_logo, link_nova_logo = upload_para_cloudinary(img_nova_logo.getvalue(), "logo_oficial_cliente", "Configuracoes")
                             
                             if link_nova_logo:
                                 atualizar_config("LOGO_URL", link_nova_logo)
                                 st.success("✅ Logótipo e Paleta visual calculada com sucesso! A repintar o ecrã...")
-                                import time
                                 time.sleep(2)
                                 st.cache_data.clear(); st.cache_resource.clear(); st.rerun()
                             else:
@@ -5362,7 +5321,9 @@ elif menu_selecionado == "⚙️ Painel de Administração":
 
         st.divider()
         
-        # 🖌️ FERRAMENTA ADICIONAL: EDITOR MANUAL DE CORES
+        # ====================================================================
+        # 🖌️ EDITOR MANUAL DE CORES
+        # ====================================================================
         st.write("### 🖌️ Editor Manual de Cores (Ajuste Fino)")
         st.write("O sistema escolheu uma cor automaticamente. Se preferir outro tom, use os selecionadores abaixo:")
         
@@ -5379,6 +5340,5 @@ elif menu_selecionado == "⚙️ Painel de Administração":
                     atualizar_config("COR_TEXTO", nova_cor_texto)
                     
                     st.success("✅ Cores atualizadas!")
-                    import time
                     time.sleep(1)
                     st.cache_data.clear(); st.cache_resource.clear(); st.rerun()
